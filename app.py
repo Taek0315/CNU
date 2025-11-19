@@ -9,7 +9,8 @@ import streamlit as st
 # -------------------------------------------------------------------
 # 설정
 # -------------------------------------------------------------------
-SURVEY_FILE = "측정문항_2025-1118_충남대학교 창의융합대학.xlsx"
+BASE_DIR = Path(__file__).resolve().parent
+SURVEY_FILE = BASE_DIR / "측정문항_2025-1118_충남대학교 창의융합대학.xlsx"
 OUTPUT_CSV = "responses.csv"
 
 st.set_page_config(
@@ -73,20 +74,22 @@ def save_record_to_csv(record: dict, filename: str = OUTPUT_CSV):
 # -------------------------------------------------------------------
 # 엑셀 로딩 / 파싱 함수
 # -------------------------------------------------------------------
-def load_instructions(path: str = SURVEY_FILE) -> str:
+def load_instructions(path: Path = SURVEY_FILE) -> str:
     """안내문 시트에서 제목+본문 텍스트 가져오기."""
-    df = pd.read_excel(path, sheet_name="안내문")
+    path = Path(path)
+    df = pd.read_excel(path, sheet_name="안내문", engine="openpyxl")
     title = str(df.loc[0, "Unnamed: 1"]).strip()
     body = str(df.loc[1, "Unnamed: 1"]).strip()
     return f"### {title}\n\n{body}"
 
 
-def load_main_items(path: str = SURVEY_FILE) -> pd.DataFrame:
+def load_main_items(path: Path = SURVEY_FILE) -> pd.DataFrame:
     """
     [전공 및 진로확신, 학습역량 측정 도구] 시트에서
     5개 영역 × 하위요인 × 80문항을 구조화하여 DataFrame으로 반환.
     """
-    df = pd.read_excel(path, sheet_name="전공 및 진로확신, 학습역량 측정 도구")
+    path = Path(path)
+    df = pd.read_excel(path, sheet_name="전공 및 진로확신, 학습역량 측정 도구", engine="openpyxl")
     # '측정 영역'이 적혀 있는 행 찾기
     header_idx = df.index[df.iloc[:, 0] == "측정 영역"][0]
 
@@ -109,12 +112,13 @@ def load_main_items(path: str = SURVEY_FILE) -> pd.DataFrame:
     return items
 
 
-def load_belong_blocks(path: str = SURVEY_FILE):
+def load_belong_blocks(path: Path = SURVEY_FILE):
     """
     [대학 소속감 및 비공식관계망] 시트에서
     3단 반구조화 블록(예/아니오 → 빈도 → 서술)을 모두 추출.
     """
-    df = pd.read_excel(path, sheet_name="대학 소속감 및 비공식관계망")
+    path = Path(path)
+    df = pd.read_excel(path, sheet_name="대학 소속감 및 비공식관계망", engine="openpyxl")
     df = df.copy()
     df["area"] = df["대학 소속감 및 비공식관계망 질문지"]
     df["area"] = df["area"].replace("영역", np.nan)
@@ -156,12 +160,13 @@ def load_belong_blocks(path: str = SURVEY_FILE):
     return blocks
 
 
-def load_dropout_blocks(path: str = SURVEY_FILE):
+def load_dropout_blocks(path: Path = SURVEY_FILE):
     """
     [이탈 방지 질문지] 시트에서
     각 축별 3단 반구조화 블록(예/아니오 → 빈도 → 서술)을 추출.
     """
-    df = pd.read_excel(path, sheet_name="이탈 방지 질문지")
+    path = Path(path)
+    df = pd.read_excel(path, sheet_name="이탈 방지 질문지", engine="openpyxl")
     df = df.copy()
 
     starts = [
@@ -198,7 +203,7 @@ def load_dropout_blocks(path: str = SURVEY_FILE):
     return blocks
 
 
-def load_background_questions(path: str = SURVEY_FILE):
+def load_background_questions(path: Path = SURVEY_FILE):
     """
     [질적정보] 시트에서 학생 배경 및 교과/비교과 참여 문항 전부를 추출.
     - section: 큰 영역(창의 융합 대학 분류, 학력/입학, 가정/SES, 생활/근로, 교과 참여, 비교과 참여 등)
@@ -207,7 +212,8 @@ def load_background_questions(path: str = SURVEY_FILE):
     - type: 'single' | 'multi' | 'text'
     - optional: 선택 문항 여부(괄호에 '선택'이 들어있는 경우 등)
     """
-    df = pd.read_excel(path, sheet_name="질적정보")
+    path = Path(path)
+    df = pd.read_excel(path, sheet_name="질적정보", engine="openpyxl")
     df = df.copy()
 
     df["section"] = df.iloc[:, 0]
