@@ -6,6 +6,15 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+try:
+    import gspread
+    from gspread.exceptions import WorksheetNotFound
+    from google.oauth2.service_account import Credentials
+except Exception:
+    gspread = None
+    Credentials = None
+    WorksheetNotFound = None
+
 # -------------------------------------------------------------------
 # 설정
 # -------------------------------------------------------------------
@@ -15,8 +24,44 @@ OUTPUT_CSV = "responses.csv"
 
 st.set_page_config(
     page_title="충남대학교 창의융합대학 종단연구 설문",
-    layout="wide",
+    layout="centered",
 )
+
+CUSTOM_CSS = """
+<style>
+main [data-testid="stVerticalBlock"] {
+    max-width: 900px;
+    margin: 0 auto;
+}
+[data-testid="stSidebar"] {
+    width: 0 !important;
+    min-width: 0 !important;
+}
+[data-testid="stRadio"] label p {
+    white-space: pre-line;
+    text-align: center;
+}
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+LIKERT_VALUES = [1, 2, 3, 4, 5]
+LIKERT_LABELS = [
+    "매우 그렇지 않다",
+    "그렇지 않다",
+    "보통이다",
+    "그렇다",
+    "매우 그렇다",
+]
+
+
+def format_likert_option(value: int) -> str:
+    """Likert 옵션을 '숫자\\n라벨' 형태로 렌더링."""
+    try:
+        label = LIKERT_LABELS[value - 1]
+    except Exception:
+        label = ""
+    return f"{value}\n{label}".strip()
 
 
 # -------------------------------------------------------------------
@@ -69,6 +114,65 @@ def save_record_to_csv(record: dict, filename: str = OUTPUT_CSV):
         df_all = df_new
 
     df_all.to_csv(path, index=False, encoding="utf-8-sig")
+
+
+GOOGLE_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+
+
+def get_worksheet():
+    """st.secrets 기반으로 Google Sheets worksheet 객체를 반환."""
+    if gspread is None or Credentials is None:
+        return None
+
+    try:
+        service_account_info = st.secrets["gcp_service_account"]
+        survey_config = st.secrets["cnu_survey"]
+    except Exception:
+        return None
+
+    sheet_id = survey_config.get("spreadsheet_id")
+    worksheet_name = survey_config.get("worksheet_name", "responses")
+
+    if not sheet_id:
+        return None
+
+    try:
+        credentials = Credentials.from_service_account_info(
+            service_account_info, scopes=GOOGLE_SCOPES
+        )
+        client = gspread.authorize(credentials)
+        spreadsheet = client.open_by_key(sheet_id)
+    except Exception as exc:
+        raise RuntimeError("Google Sheets 인증 또는 연결 중 오류가 발생했습니다.") from exc
+
+    try:
+        worksheet = spreadsheet.worksheet(worksheet_name)
+    except WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(
+            title=worksheet_name,
+            rows=1000,
+            cols=200,
+        )
+    return worksheet
+
+
+def save_record_to_google_sheet(record: dict):
+    """한 응답자를 Google Sheet에 한 행으로 저장."""
+    worksheet = get_worksheet()
+    if worksheet is None:
+        return
+
+    headers = list(record.keys())
+    values = [record[k] for k in headers]
+
+    existing_header = worksheet.row_values(1)
+    if not existing_header:
+        worksheet.append_row(headers, value_input_option="USER_ENTERED")
+
+    worksheet.append_row(values, value_input_option="USER_ENTERED")
 
 
 # -------------------------------------------------------------------
@@ -299,14 +403,6 @@ def show_step_1_main_scale():
 
     items = load_main_items()
 
-    likert_5 = [
-        "1 매우 그렇지 않다",
-        "2 그렇지 않다",
-        "3 보통이다",
-        "4 그렇다",
-        "5 매우 그렇다",
-    ]
-
     for area, df_area in items.groupby("area"):
         st.markdown(f"#### 영역: {area}")
         for subscale, df_sub in df_area.groupby("subscale"):
@@ -319,10 +415,11 @@ def show_step_1_main_scale():
                 register_key(key)
                 st.radio(
                     label,
-                    likert_5,
+                    LIKERT_VALUES,
                     index=None,
                     key=key,
                     horizontal=True,
+                    format_func=format_likert_option,
                 )
 
 
@@ -487,6 +584,12 @@ def render_navigation(step_labels):
             if st.button("응답 제출"):
                 record = build_record()
                 save_record_to_csv(record)
+                try:
+                    save_record_to_google_sheet(record)
+                except Exception:
+                    st.warning(
+                        "응답이 CSV에는 저장되었으나, Google 스프레드시트 저장 중 문제가 발생했습니다."
+                    )
                 st.success("응답이 저장되었습니다. 참여해 주셔서 감사합니다.")
                 st.balloons()
 
