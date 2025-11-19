@@ -1,3 +1,4 @@
+import html
 import re
 from datetime import datetime
 from pathlib import Path
@@ -8,12 +9,10 @@ import streamlit as st
 
 try:
     import gspread
-    from gspread.exceptions import WorksheetNotFound
     from google.oauth2.service_account import Credentials
 except Exception:
     gspread = None
     Credentials = None
-    WorksheetNotFound = None
 
 # -------------------------------------------------------------------
 # 설정
@@ -29,7 +28,7 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
-main [data-testid="stVerticalBlock"] {
+.main > div {
     max-width: 900px;
     margin: 0 auto;
 }
@@ -37,13 +36,29 @@ main [data-testid="stVerticalBlock"] {
     width: 0 !important;
     min-width: 0 !important;
 }
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+QUESTION_CSS = """
+<style>
+.question-text {
+    font-size: 1.05rem;
+    line-height: 1.6;
+}
+</style>
+"""
+st.markdown(QUESTION_CSS, unsafe_allow_html=True)
+
+LIKERT_CSS = """
+<style>
 [data-testid="stRadio"] label p {
     white-space: pre-line;
     text-align: center;
 }
 </style>
 """
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+st.markdown(LIKERT_CSS, unsafe_allow_html=True)
 
 LIKERT_VALUES = [1, 2, 3, 4, 5]
 LIKERT_LABELS = [
@@ -62,6 +77,14 @@ def format_likert_option(value: int) -> str:
     except Exception:
         label = ""
     return f"{value}\n{label}".strip()
+
+
+def render_question_text(text: str):
+    """모바일 가독성을 높인 질문 텍스트 렌더러."""
+    if not text:
+        return
+    safe = html.escape(str(text)).replace("\n", "<br/>")
+    st.markdown(f"<p class='question-text'>{safe}</p>", unsafe_allow_html=True)
 
 
 # -------------------------------------------------------------------
@@ -120,6 +143,7 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
+GOOGLE_SPREADSHEET_ID = "1-25xZC2Z0u9Ac-pvfg7yG2doDKWrI5xaEYExLlCmVLE"
 
 
 def get_worksheet():
@@ -129,14 +153,7 @@ def get_worksheet():
 
     try:
         service_account_info = st.secrets["gcp_service_account"]
-        survey_config = st.secrets["cnu_survey"]
     except Exception:
-        return None
-
-    sheet_id = survey_config.get("spreadsheet_id")
-    worksheet_name = survey_config.get("worksheet_name", "responses")
-
-    if not sheet_id:
         return None
 
     try:
@@ -144,18 +161,11 @@ def get_worksheet():
             service_account_info, scopes=GOOGLE_SCOPES
         )
         client = gspread.authorize(credentials)
-        spreadsheet = client.open_by_key(sheet_id)
-    except Exception as exc:
-        raise RuntimeError("Google Sheets 인증 또는 연결 중 오류가 발생했습니다.") from exc
+        spreadsheet = client.open_by_key(GOOGLE_SPREADSHEET_ID)
+        worksheet = spreadsheet.get_worksheet(0)
+    except Exception:
+        return None
 
-    try:
-        worksheet = spreadsheet.worksheet(worksheet_name)
-    except WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(
-            title=worksheet_name,
-            rows=1000,
-            cols=200,
-        )
     return worksheet
 
 
@@ -163,7 +173,7 @@ def save_record_to_google_sheet(record: dict):
     """한 응답자를 Google Sheet에 한 행으로 저장."""
     worksheet = get_worksheet()
     if worksheet is None:
-        return
+        raise RuntimeError("Google 스프레드시트 워크시트를 열 수 없습니다.")
 
     headers = list(record.keys())
     values = [record[k] for k in headers]
@@ -364,32 +374,23 @@ def show_step_0_consent_and_basic():
 
     st.markdown("#### 기본 정보 입력")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        name_key = "basic_name"
-        sid_key = "basic_student_id"
-        name = st.text_input("이름", key=name_key)
-        sid = st.text_input("학번", key=sid_key)
-        register_key(name_key)
-        register_key(sid_key)
+    name_key = "name"
+    gender_key = "gender"
+    sid_key = "student_id"
 
-    with col2:
-        gender_key = "basic_gender"
-        grade_key = "basic_grade"
-        major_type_key = "basic_major_type"
+    st.text_input("이름", key=name_key)
+    st.radio(
+        "성별",
+        ["남", "여", "기타/응답 거절"],
+        index=None,
+        key=gender_key,
+        horizontal=True,
+    )
+    st.text_input("학번", key=sid_key)
 
-        gender = st.radio("성별", ["남", "여", "기타/응답 거절"], index=None, key=gender_key)
-        grade = st.selectbox("학년", ["1학년", "2학년", "3학년", "4학년 이상"], index=None, key=grade_key)
-        major_type = st.radio(
-            "입학 유형",
-            ["창의융합대학 전공자율선택제", "일반 학과 입학"],
-            index=None,
-            key=major_type_key,
-        )
-
-        register_key(gender_key)
-        register_key(grade_key)
-        register_key(major_type_key)
+    register_key(name_key)
+    register_key(gender_key)
+    register_key(sid_key)
 
     consent_key = "consent_research"
     consent = st.checkbox("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.", key=consent_key)
@@ -406,20 +407,21 @@ def show_step_1_main_scale():
     for area, df_area in items.groupby("area"):
         st.markdown(f"#### 영역: {area}")
         for subscale, df_sub in df_area.groupby("subscale"):
-            st.markdown(f"**하위요인: {subscale}**")
             for _, row in df_sub.iterrows():
                 num_str = str(row["item_no"]).strip()
                 label = f"{num_str}. {row['item_text']}"
                 key = make_key("quant", area, subscale, f"Q{num_str}")
 
                 register_key(key)
+                render_question_text(label)
                 st.radio(
-                    label,
+                    "",
                     LIKERT_VALUES,
                     index=None,
                     key=key,
                     horizontal=True,
                     format_func=format_likert_option,
+                    label_visibility="collapsed",
                 )
 
 
@@ -435,35 +437,43 @@ def show_step_2_belonging_and_informal():
             st.markdown(f"#### 영역: {current_area}")
 
         dim = block["dimension"]
-        st.markdown(f"**하위영역: {dim}**")
 
         # (1) 예/아니오 스크리닝
         yn_key = make_key("belong", current_area, dim, block["row_index"], "yn")
         register_key(yn_key)
+        render_question_text(block["yesno_question"])
         st.radio(
-            block["yesno_question"],
+            "",
             [clean_option(block["yes_label"]), clean_option(block["no_label"])],
             index=None,
             key=yn_key,
             horizontal=True,
+            label_visibility="collapsed",
         )
 
         # (2) 빈도
         freq_key = make_key("belong", current_area, dim, block["row_index"], "freq")
         register_key(freq_key)
         freq_opts = [clean_option(o) for o in block["freq_options"]]
+        render_question_text(block["freq_question"])
         st.radio(
-            block["freq_question"],
+            "",
             freq_opts,
             index=None,
             key=freq_key,
             horizontal=True,
+            label_visibility="collapsed",
         )
 
         # (3) 서술형
         open_key = make_key("belong", current_area, dim, block["row_index"], "open")
         register_key(open_key)
-        st.text_area(block["open_question"], key=open_key)
+        render_question_text(block["open_question"])
+        st.text_area(
+            "",
+            key=open_key,
+            label_visibility="collapsed",
+        )
 
 
 def show_step_3_dropout_scanning():
@@ -480,30 +490,39 @@ def show_step_3_dropout_scanning():
         # (1) 예/아니오
         yn_key = make_key("drop", current_axis, block["row_index"], "yn")
         register_key(yn_key)
+        render_question_text(block["yesno_question"])
         st.radio(
-            block["yesno_question"],
+            "",
             [clean_option(block["yes_label"]), clean_option(block["no_label"])],
             index=None,
             key=yn_key,
             horizontal=True,
+            label_visibility="collapsed",
         )
 
         # (2) 빈도
         freq_key = make_key("drop", current_axis, block["row_index"], "freq")
         register_key(freq_key)
         freq_opts = [clean_option(o) for o in block["freq_options"]]
+        render_question_text(block["freq_question"])
         st.radio(
-            block["freq_question"],
+            "",
             freq_opts,
             index=None,
             key=freq_key,
             horizontal=True,
+            label_visibility="collapsed",
         )
 
         # (3) 서술형
         open_key = make_key("drop", current_axis, block["row_index"], "open")
         register_key(open_key)
-        st.text_area(block["open_question"], key=open_key)
+        render_question_text(block["open_question"])
+        st.text_area(
+            "",
+            key=open_key,
+            label_visibility="collapsed",
+        )
 
 
 def show_step_4_background_and_programs():
@@ -526,28 +545,34 @@ def show_step_4_background_and_programs():
         key = make_key("bg", current_section, q["idx"])
         register_key(key)
 
+        question_label = qtext + (" (선택)" if optional else "")
+        render_question_text(question_label)
+
         if qtype == "single" and options:
             # 단일 선택
             st.radio(
-                qtext + (" (선택)" if optional else ""),
+                "",
                 options,
                 index=None,
                 key=key,
                 horizontal=True,
+                label_visibility="collapsed",
             )
         elif qtype == "multi" and options:
             # 복수 선택
             st.multiselect(
-                qtext + (" (선택)" if optional else ""),
+                "",
                 options,
                 key=key,
+                label_visibility="collapsed",
             )
         else:
             # 자유 응답
             # 길이가 좀 있는 서술형일 가능성이 높으니 text_area 사용
             st.text_area(
-                qtext + (" (선택)" if optional else ""),
+                "",
                 key=key,
+                label_visibility="collapsed",
             )
 
 
@@ -588,7 +613,7 @@ def render_navigation(step_labels):
                     save_record_to_google_sheet(record)
                 except Exception:
                     st.warning(
-                        "응답이 CSV에는 저장되었으나, Google 스프레드시트 저장 중 문제가 발생했습니다."
+                        "응답은 CSV에 저장되었으나 Google 스프레드시트 저장 중 오류가 발생했습니다."
                     )
                 st.success("응답이 저장되었습니다. 참여해 주셔서 감사합니다.")
                 st.balloons()
