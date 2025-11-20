@@ -30,13 +30,13 @@ CUSTOM_CSS = """
 <style>
 :root {
     color-scheme: light;
-    --pill-bg: #f3f4f6;
-    --pill-bg-hover: #e5e7eb;
+    --pill-bg: #ffffff;
+    --pill-bg-hover: #f3f4f6;
     --pill-border: #d0d7de;
     --pill-border-hover: #9ca3af;
     --pill-text: #111827;
-    --pill-selected-bg: #1f6feb;
-    --pill-selected-border: #1f6feb;
+    --pill-selected-bg: #2563eb;
+    --pill-selected-border: #2563eb;
     --pill-selected-text: #ffffff;
 }
 body,
@@ -104,38 +104,84 @@ h6 {
 [data-testid="stCheckbox"] > div {
     align-items: center;
 }
+[data-testid="stRadio"] label,
 [data-testid="stCheckbox"] > label {
-    border: 1px solid var(--pill-border);
-    border-radius: 999px;
-    padding: 0.4rem 0.95rem;
-    width: 100%;
-    display: flex;
+    display: inline-flex;
+    align-items: center;
     gap: 0.35rem;
     background-color: var(--pill-bg);
     color: var(--pill-text);
+    border: 1px solid var(--pill-border);
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    margin-right: 0.4rem;
+    margin-bottom: 0.4rem;
     font-size: 0.95rem;
     font-weight: 500;
-    line-height: 1.25;
     transition: all 0.15s ease;
+    cursor: pointer;
+}
+[data-testid="stCheckbox"] > label {
+    width: 100%;
+    line-height: 1.3;
 }
 [data-testid="stCheckbox"] > label span {
     flex: 1;
     color: inherit;
 }
+[data-testid="stRadio"] label:hover,
 [data-testid="stCheckbox"] > label:hover {
     border-color: var(--pill-border-hover);
     background-color: var(--pill-bg-hover);
     color: var(--pill-text);
 }
+[data-testid="stRadio"] label:has(input:checked),
 [data-testid="stCheckbox"] > label:has(input:checked) {
     background-color: var(--pill-selected-bg);
     border-color: var(--pill-selected-border);
     color: var(--pill-selected-text);
 }
+[data-testid="stRadio"] label:has(input:checked):hover,
 [data-testid="stCheckbox"] > label:has(input:checked):hover {
     background-color: var(--pill-selected-bg);
     border-color: var(--pill-selected-border);
     color: var(--pill-selected-text);
+}
+input[type="text"],
+input[type="number"],
+input[type="email"],
+textarea,
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #d0d7de !important;
+    border-radius: 0.6rem !important;
+    padding: 0.5rem 0.75rem !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+textarea:focus,
+[data-baseweb="input"] input:focus,
+[data-baseweb="textarea"] textarea:focus {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+    outline: none;
+}
+[data-baseweb="input"],
+[data-baseweb="textarea"] {
+    background-color: #ffffff !important;
+    border-radius: 0.6rem !important;
+}
+input::placeholder,
+textarea::placeholder {
+    color: #9ca3af !important;
+}
+input:-ms-input-placeholder,
+textarea:-ms-input-placeholder {
+    color: #9ca3af !important;
 }
 </style>
 """
