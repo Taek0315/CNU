@@ -478,6 +478,9 @@ def load_belong_blocks(path: Path = SURVEY_FILE):
     """
     [대학 소속감 및 비공식관계망] 시트에서
     3단 반구조화 블록(예/아니오 → 빈도 → 서술)을 모두 추출.
+
+    NOTE: 문항 내용은 자유롭게 바꿔도 되지만, 각 블록이 정확히 3개의 연속된 행(예/아니오,
+    빈도, 서술)과 Unnamed:3~7 열에 빈도 옵션이 배치된다는 구조는 유지되어야 합니다.
     """
     path = Path(path)
     df = pd.read_excel(path, sheet_name="대학 소속감 및 비공식관계망", engine="openpyxl")
@@ -527,6 +530,9 @@ def load_dropout_blocks(path: Path = SURVEY_FILE):
     """
     [이탈 방지 질문지] 시트에서
     각 축별 3단 반구조화 블록(예/아니오 → 빈도 → 서술)을 추출.
+
+    NOTE: 구조는 [예/아니오 행 → 빈도 행 → 서술 행] 순서를 가정합니다. 문항 텍스트나
+    옵션 내용은 자유롭게 바꿀 수 있지만, 이 3행 패턴이 깨지면 파서 수정이 필요합니다.
     """
     path = Path(path)
     df = pd.read_excel(path, sheet_name="이탈 방지 질문지", engine="openpyxl")
@@ -627,6 +633,8 @@ BACKGROUND_BRANCH_RULES = [
 
 BACKGROUND_ENTRY_IDX = 3
 PROGRAM_ONLY_SECTIONS = {"교과 참여", "비교과 참여", "전공탐색 지원"}
+FIRST_CHOICE_TOKEN = "1지망"
+FIRST_CHOICE_FOLLOWUP_LABEL = "어떤 1지망 계열/학과였는지 작성해주세요."
 
 
 @st.cache_data(show_spinner=False)
@@ -739,6 +747,25 @@ def get_background_question_bank():
         "entry_affirm_values": entry_affirm_values,
         "question_lookup": question_lookup,
     }
+
+
+def get_first_choice_major_meta(questions: list[dict] | None = None) -> tuple[str | None, str | None]:
+    """
+    1지망 계열/학과 여부 문항과 텍스트 후속 질문 key를 찾는다.
+
+    NOTE: 질적정보 시트에서 해당 문항 텍스트에 '1지망' 문자열이 포함되어 있다는 가정에
+    의존한다. Excel에서 해당 문구를 완전히 바꾸면 FIRST_CHOICE_TOKEN을 업데이트해야 한다.
+    """
+    source_questions = questions
+    if source_questions is None:
+        source_questions = get_background_question_bank()["questions"]
+    for question in source_questions:
+        question_text = question.get("question")
+        if isinstance(question_text, str) and FIRST_CHOICE_TOKEN in question_text:
+            base_key = question.get("key")
+            major_key = make_key(base_key, "1지망", "학과", "텍스트")
+            return base_key, major_key
+    return None, None
 
 
 def is_answer_missing(value) -> bool:
@@ -908,7 +935,9 @@ def show_step_2_belonging_and_informal():
             clear_state(followup_keys)
 
         if idx < total_blocks - 1:
-            st.markdown("<hr class='set-divider' />", unsafe_allow_html=True)
+            next_area = blocks[idx + 1]["area"]
+            if next_area == block["area"]:
+                st.markdown("<hr class='set-divider' />", unsafe_allow_html=True)
 
 
 def show_step_3_dropout_scanning():
@@ -978,6 +1007,7 @@ def show_step_4_background_and_programs():
     show_program_sections = (
         not entry_key or (entry_answer and entry_answer in entry_affirm_values)
     )
+    first_choice_key, first_choice_major_key = get_first_choice_major_meta(questions)
 
     for q in questions:
         section = q["section"]
@@ -996,6 +1026,8 @@ def show_step_4_background_and_programs():
 
         if section in PROGRAM_ONLY_SECTIONS and not show_program_sections:
             clear_question_state(q)
+            if first_choice_major_key and key == first_choice_key:
+                reset_answer(first_choice_major_key)
             continue
 
         parent_key = child_parent.get(key)
@@ -1004,6 +1036,8 @@ def show_step_4_background_and_programs():
             parent_answer = get_saved_value(parent_key, "")
             if not parent_answer or parent_answer not in allowed:
                 clear_question_state(q)
+                if first_choice_major_key and key == first_choice_key:
+                    reset_answer(first_choice_major_key)
                 continue
 
         question_label = qtext + (" (선택)" if optional else "")
@@ -1038,6 +1072,22 @@ def show_step_4_background_and_programs():
                 label_visibility="collapsed",
             )
             record_answer(key, value)
+
+        if key == first_choice_key and first_choice_major_key:
+            register_key(first_choice_major_key)
+            choice_answer = get_saved_value(key, "")
+            if choice_answer and "있다" in str(choice_answer):
+                render_question_text(FIRST_CHOICE_FOLLOWUP_LABEL)
+                default_major = get_saved_value(first_choice_major_key, "")
+                major_value = st.text_input(
+                    "",
+                    value=default_major,
+                    key=first_choice_major_key,
+                    label_visibility="collapsed",
+                )
+                record_answer(first_choice_major_key, major_value)
+            else:
+                reset_answer(first_choice_major_key)
 
         if key in parent_children:
             allowed = parent_affirm.get(key, [])
@@ -1105,6 +1155,7 @@ def build_record():
     bg_data = get_background_question_bank()
     parent_affirm = bg_data["parent_affirmative"]
     child_parent = bg_data["child_parent"]
+    first_choice_key, first_choice_major_key = get_first_choice_major_meta(bg_data["questions"])
 
     for q in bg_data["questions"]:
         key = q["key"]
@@ -1117,6 +1168,10 @@ def build_record():
                 continue
 
         record[key] = normalize_value(get_saved_value(key, ""))
+        if first_choice_major_key and key == first_choice_key:
+            record[first_choice_major_key] = normalize_value(
+                get_saved_value(first_choice_major_key, "")
+            )
 
     return record
 
