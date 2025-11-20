@@ -333,6 +333,8 @@ SECTION_METADATA = {
     },
 }
 
+INSTRUCTION_SPACER_HTML = "<div style='height: 1.25rem;'></div>"
+
 
 def get_response_store() -> dict[str, object]:
     """Widget 값이 사라져도 보존되는 응답 저장소."""
@@ -406,6 +408,11 @@ def render_section_intro(meta: dict[str, str] | None):
     st.markdown(meta.get("instruction", ""))
 
 
+def render_instruction_spacer():
+    """섹션 지시문과 첫 문항 사이의 여백을 렌더링."""
+    st.markdown(INSTRUCTION_SPACER_HTML, unsafe_allow_html=True)
+
+
 def render_pills(
     options: list,
     *,
@@ -415,20 +422,30 @@ def render_pills(
 ):
     """Streamlit pills helper with consistent styling."""
     register_key(key)
+    cleaned_options = normalize_choice_options(options)
+    empty_value = [] if selection_mode != "single" else None
+    if not cleaned_options:
+        return record_answer(key, empty_value)
+
     formatter = format_func or (lambda x: x)
-    saved_value = get_saved_value(key, None)
-    default_value = None
+    saved_value = get_saved_value(key, empty_value)
+    default_value = empty_value
     if selection_mode == "single":
-        if saved_value in options:
+        if saved_value in cleaned_options:
             default_value = saved_value
+        else:
+            default_value = None
     else:
         if isinstance(saved_value, (list, tuple, set)):
-            default_candidates = [opt for opt in saved_value if opt in options]
+            default_candidates = [opt for opt in saved_value if opt in cleaned_options]
             if default_candidates:
                 default_value = default_candidates
+            else:
+                default_value = []
+
     value = st.pills(
         "",
-        options=options,
+        options=cleaned_options,
         default=default_value,
         key=key,
         selection_mode=selection_mode,
@@ -493,18 +510,9 @@ def render_single_choice_radio(
 ):
     """일반 라디오 그룹을 렌더링하면서 빈 옵션을 제거하고 기본값을 복원."""
     register_key(key)
-    cleaned_options: list = []
-    if options:
-        for opt in options:
-            if isinstance(opt, str):
-                normalized = clean_option(opt)
-                if normalized:
-                    cleaned_options.append(normalized)
-            elif opt is not None:
-                cleaned_options.append(opt)
+    cleaned_options = normalize_choice_options(options)
     if not cleaned_options:
-        record_answer(key, None)
-        return None
+        return record_answer(key, None)
 
     saved_value = get_saved_value(key, None)
     default_index = None
@@ -552,6 +560,25 @@ def sanitize_option_list(options: list[str] | None) -> list[str]:
         normalized = clean_option(opt)
         if isinstance(normalized, str) and normalized.strip():
             cleaned.append(normalized.strip())
+    return cleaned
+
+
+def normalize_choice_options(options: list | None) -> list:
+    """단일/다중 선택 UI용 옵션 목록에서 공백, None, NaN 등을 제거."""
+    cleaned: list = []
+    if not options:
+        return cleaned
+    for opt in options:
+        if opt is None:
+            continue
+        if not isinstance(opt, str) and pd.isna(opt):
+            continue
+        if isinstance(opt, str):
+            normalized = clean_option(opt)
+            if normalized.strip():
+                cleaned.append(normalized.strip())
+            continue
+        cleaned.append(opt)
     return cleaned
 
 
@@ -1301,7 +1328,7 @@ def show_step_1_main_scale():
 
 def show_step_2_belonging_and_informal():
     render_section_intro(SECTION_METADATA.get("belonging"))
-    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
+    render_instruction_spacer()
 
     blocks = get_belong_blocks_with_keys()
 
@@ -1362,7 +1389,7 @@ def show_step_2_belonging_and_informal():
 
 def show_step_3_dropout_scanning():
     render_section_intro(SECTION_METADATA.get("dropout"))
-    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
+    render_instruction_spacer()
 
     blocks = get_dropout_blocks_with_keys()
     current_axis = None
@@ -1416,7 +1443,7 @@ def show_step_3_dropout_scanning():
 
 def show_step_4_background_and_programs():
     render_section_intro(SECTION_METADATA.get("background"))
-    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
+    render_instruction_spacer()
 
     bg_data = get_background_question_bank()
     questions = bg_data["questions"]
