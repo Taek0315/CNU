@@ -166,6 +166,7 @@ def render_multi_checkbox_grid(
     options: list[str],
     option_keys: list[str],
     columns: int = 3,
+    grid_threshold: int = 3,
 ):
     """복수 선택 항목을 칩 형태의 체크박스로 그리드 배치."""
     stored = st.session_state.get(key, [])
@@ -177,7 +178,7 @@ def render_multi_checkbox_grid(
         st.session_state[key] = []
         return []
 
-    col_count = max(1, min(columns, total))
+    col_count = 1 if total < grid_threshold else max(1, min(columns, total))
 
     for idx, option in enumerate(options):
         if idx % col_count == 0:
@@ -683,6 +684,54 @@ def get_background_question_bank():
     }
 
 
+def is_answer_missing(value) -> bool:
+    """필수 응답 누락 여부 판별."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, tuple, set)):
+        return len(value) == 0
+    return False
+
+
+def validate_main_scale_required() -> bool:
+    """메인 척도 전체 문항 응답 확인."""
+    for item in get_main_scale_items():
+        value = st.session_state.get(item["key"])
+        if is_answer_missing(value):
+            st.warning("모든 전공 및 진로 확신 · 학습 역량 문항에 응답해주세요.")
+            return False
+    return True
+
+
+def validate_yesno_screeners(blocks: list[dict], warning_message: str) -> bool:
+    """예/아니오 스크리닝 문항 응답 확인."""
+    for block in blocks:
+        value = st.session_state.get(block["yes_key"])
+        if is_answer_missing(value):
+            st.warning(warning_message)
+            return False
+    return True
+
+
+def can_advance_from_step(step: int) -> bool:
+    """다음 단계로 이동 가능한지 검증."""
+    if step == 1:
+        return validate_main_scale_required()
+    if step == 2:
+        return validate_yesno_screeners(
+            get_belong_blocks_with_keys(),
+            "대학 소속감 및 비공식 관계망의 모든 예/아니오 문항을 응답해주세요.",
+        )
+    if step == 3:
+        return validate_yesno_screeners(
+            get_dropout_blocks_with_keys(),
+            "중도 탈락 문항의 모든 예/아니오 문항을 응답해주세요.",
+        )
+    return True
+
+
 # -------------------------------------------------------------------
 # 각 단계 화면 렌더링
 # -------------------------------------------------------------------
@@ -889,14 +938,20 @@ def show_step_4_background_and_programs():
         render_question_text(question_label)
 
         if qtype == "single" and options:
-            st.radio(
-                "",
-                options,
-                index=None,
-                key=key,
-                horizontal=False,
-                label_visibility="collapsed",
-            )
+            if len(options) >= 3:
+                render_pills(
+                    options,
+                    key=key,
+                )
+            else:
+                st.radio(
+                    "",
+                    options,
+                    index=None,
+                    key=key,
+                    horizontal=False,
+                    label_visibility="collapsed",
+                )
         elif qtype == "multi" and options:
             render_multi_checkbox_grid(
                 key=key,
@@ -1011,13 +1066,13 @@ def render_navigation(step_labels):
 
         if step < total - 1:
             if st.button("다음 단계 ▶", disabled=next_disabled):
-                st.session_state["step"] = step + 1
-                st.rerun()
+                if can_advance_from_step(step):
+                    st.session_state["step"] = step + 1
+                    st.rerun()
             if next_disabled:
                 st.caption("연구 참여에 동의해야 다음 단계로 이동할 수 있습니다.")
         else:
-            submit_disabled = not consent_ok
-            if st.button("응답 제출", disabled=submit_disabled):
+            if st.button("응답 제출"):
                 record = build_record()
                 save_record_to_csv(record)
                 try:
@@ -1028,8 +1083,6 @@ def render_navigation(step_labels):
                     )
                 st.success("응답이 저장되었습니다. 참여해 주셔서 감사합니다.")
                 st.balloons()
-            if submit_disabled:
-                st.caption("연구 참여 동의 후 제출할 수 있습니다.")
 
 
 # -------------------------------------------------------------------
