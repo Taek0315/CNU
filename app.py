@@ -44,6 +44,25 @@ section.main > div,
     width: 0 !important;
     min-width: 0 !important;
 }
+.set-divider {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 1.5rem 0 1.25rem;
+}
+[data-testid="stCheckbox"] > div {
+    align-items: center;
+}
+[data-testid="stCheckbox"] > label {
+    border: 1px solid #dbeafe;
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    width: 100%;
+    display: flex;
+    gap: 0.4rem;
+}
+[data-testid="stCheckbox"] > label span {
+    flex: 1;
+}
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
@@ -61,15 +80,18 @@ QUESTION_CSS = """
     margin: 0 0 0.35rem 0;
 }
 [data-testid="stRadio"] > div {
-    gap: 0.6rem;
+    gap: 0.45rem;
     flex-wrap: wrap;
 }
 [data-testid="stRadio"] label {
-    border: 1px solid #cbd5f5;
+    border: 1px solid #dbeafe;
     border-radius: 999px;
     padding: 0.35rem 0.85rem;
     min-width: 2.5rem;
     justify-content: center;
+}
+[data-testid="stRadio"] label:hover {
+    border-color: #93c5fd;
 }
 </style>
 """
@@ -118,6 +140,67 @@ def render_question_text(text: str):
     st.markdown(f"<p class='question-text'>{safe}</p>", unsafe_allow_html=True)
 
 
+def render_pills(
+    options: list,
+    *,
+    key: str,
+    selection_mode: str = "single",
+    format_func=None,
+):
+    """Streamlit pills helper with consistent styling."""
+    formatter = format_func or (lambda x: x)
+    return st.pills(
+        "",
+        options=options,
+        key=key,
+        selection_mode=selection_mode,
+        format_func=formatter,
+        width="stretch",
+        label_visibility="collapsed",
+    )
+
+
+def render_multi_checkbox_grid(
+    *,
+    key: str,
+    options: list[str],
+    option_keys: list[str],
+    columns: int = 3,
+):
+    """복수 선택 항목을 칩 형태의 체크박스로 그리드 배치."""
+    stored = st.session_state.get(key, [])
+    if not isinstance(stored, list):
+        stored = []
+
+    total = len(options)
+    if total == 0:
+        st.session_state[key] = []
+        return []
+
+    col_count = max(1, min(columns, total))
+
+    for idx, option in enumerate(options):
+        if idx % col_count == 0:
+            cols = st.columns(col_count, gap="small")
+        col = cols[idx % col_count]
+        with col:
+            checkbox_key = option_keys[idx]
+            default_value = option in stored
+            st.checkbox(
+                option,
+                key=checkbox_key,
+                value=default_value,
+            )
+
+    selected = [
+        options[i]
+        for i in range(total)
+        if st.session_state.get(option_keys[i], False)
+    ]
+    st.session_state[key] = selected
+    return selected
+
+
 # -------------------------------------------------------------------
 # 유틸 함수
 # -------------------------------------------------------------------
@@ -158,8 +241,20 @@ def render_scale_description(
 def clear_state(keys: list[str]):
     """조건 불충족 시 하위 문항 값을 초기화."""
     for key in keys:
-        if key in st.session_state:
+        if key and key in st.session_state:
             del st.session_state[key]
+
+
+def question_state_keys(question: dict) -> list[str]:
+    """배경 문항 등에서 본문 key + 파생 key 목록을 반환."""
+    keys = [question["key"]]
+    keys.extend(question.get("option_keys", []))
+    return keys
+
+
+def clear_question_state(question: dict):
+    """주어진 문항 관련 상태를 모두 초기화."""
+    clear_state(question_state_keys(question))
 
 
 def save_record_to_csv(record: dict, filename: str = OUTPUT_CSV):
@@ -442,7 +537,8 @@ def load_background_questions(path: Path = SURVEY_FILE):
             continue
 
         options = [row[c] for c in option_cols if isinstance(row[c], str)]
-        multi = "복수 선택" in qtext.replace(" ", "")
+        normalized_text = re.sub(r"\s+", "", qtext)
+        multi = "복수선택" in normalized_text
         optional = "선택" in qtext
 
         qtype = "text"
@@ -470,6 +566,9 @@ BACKGROUND_BRANCH_RULES = [
         "affirmative_values": None,
     },
 ]
+
+BACKGROUND_ENTRY_IDX = 3
+PROGRAM_ONLY_SECTIONS = {"교과 참여", "비교과 참여", "전공탐색 지원"}
 
 
 @st.cache_data(show_spinner=False)
@@ -522,10 +621,15 @@ def get_dropout_blocks_with_keys() -> list[dict]:
 def get_background_question_bank():
     """배경 문항 + 분기 메타데이터."""
     questions = []
+    entry_question = None
     for q in load_background_questions():
         options = [clean_option(opt) for opt in q["options"]]
         key = make_key("bg", q["section"], q["idx"])
-        questions.append({**q, "options": options, "key": key})
+        option_keys = [f"{key}__opt_{idx}" for idx in range(len(options))]
+        question_entry = {**q, "options": options, "key": key, "option_keys": option_keys}
+        questions.append(question_entry)
+        if q["idx"] == BACKGROUND_ENTRY_IDX:
+            entry_question = question_entry
 
     parent_children: dict[str, list[str]] = {}
     child_parent: dict[str, str] = {}
@@ -557,11 +661,25 @@ def get_background_question_bank():
             cleaned_values = ["예"]
         parent_affirmative[parent_key] = cleaned_values
 
+    entry_question_key = entry_question["key"] if entry_question else None
+    entry_affirm_values = []
+    if entry_question:
+        entry_affirm_values = [
+            opt for opt in entry_question["options"] if "창의" in opt
+        ]
+        if not entry_affirm_values and entry_question["options"]:
+            entry_affirm_values = [entry_question["options"][0]]
+
+    question_lookup = {q["key"]: q for q in questions}
+
     return {
         "questions": questions,
         "parent_children": parent_children,
         "child_parent": child_parent,
         "parent_affirmative": parent_affirmative,
+        "entry_question_key": entry_question_key,
+        "entry_affirm_values": entry_affirm_values,
+        "question_lookup": question_lookup,
     }
 
 
@@ -577,18 +695,28 @@ def show_step_0_consent_and_basic():
     gender_key = "gender"
     sid_key = "student_id"
 
-    st.text_input("이름", key=name_key)
-    st.radio(
-        "성별",
-        ["남자", "여자"],
-        index=None,
-        key=gender_key,
-        horizontal=True,
+    render_question_text("이름")
+    st.text_input(
+        "",
+        key=name_key,
+        label_visibility="collapsed",
+        placeholder="이름을 입력하세요",
     )
-    st.text_input("학번", key=sid_key)
+
+    render_question_text("성별")
+    render_pills(["남자", "여자"], key=gender_key)
+
+    render_question_text("학번")
+    st.text_input(
+        "",
+        key=sid_key,
+        label_visibility="collapsed",
+        placeholder="학번을 입력하세요",
+    )
 
     consent_key = "consent_research"
-    st.checkbox("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.", key=consent_key)
+    render_question_text("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.")
+    st.checkbox("동의합니다.", key=consent_key)
 
     st.info("※ 동의 여부와 상관없이 언제든지 설문 참여를 중단하실 수 있습니다.")
 
@@ -609,14 +737,10 @@ def show_step_1_main_scale():
         key = item["key"]
         render_question_text(item["text"])
         render_scale_description()
-        st.radio(
-            "",
+        render_pills(
             LIKERT_VALUES,
-            index=None,
             key=key,
-            horizontal=True,
             format_func=lambda v: str(v),
-            label_visibility="collapsed",
         )
 
 
@@ -626,24 +750,19 @@ def show_step_2_belonging_and_informal():
     blocks = get_belong_blocks_with_keys()
 
     current_area = None
-    for block in blocks:
+    total_blocks = len(blocks)
+    for idx, block in enumerate(blocks):
         if block["area"] != current_area:
             if current_area is not None:
                 st.divider()
             current_area = block["area"]
 
-        dim = block["dimension"]
-
         # (1) 예/아니오 스크리닝
         yn_key = block["yes_key"]
         render_question_text(block["yesno_question"])
-        yn_answer = st.radio(
-            "",
+        yn_answer = render_pills(
             [block["yes_value"], block["no_value"]],
-            index=None,
             key=yn_key,
-            horizontal=True,
-            label_visibility="collapsed",
         )
 
         show_followups = yn_answer == block["yes_value"]
@@ -672,6 +791,9 @@ def show_step_2_belonging_and_informal():
         else:
             clear_state(followup_keys)
 
+        if idx < total_blocks - 1:
+            st.markdown("<hr class='set-divider' />", unsafe_allow_html=True)
+
 
 def show_step_3_dropout_scanning():
     st.markdown("### 3. 중도탈락 위험 스캐닝 문항")
@@ -688,13 +810,9 @@ def show_step_3_dropout_scanning():
         # (1) 예/아니오
         yn_key = block["yes_key"]
         render_question_text(block["yesno_question"])
-        yn_answer = st.radio(
-            "",
+        yn_answer = render_pills(
             [block["yes_value"], block["no_value"]],
-            index=None,
             key=yn_key,
-            horizontal=True,
-            label_visibility="collapsed",
         )
 
         show_followups = yn_answer == block["yes_value"]
@@ -732,7 +850,14 @@ def show_step_4_background_and_programs():
     parent_children = bg_data["parent_children"]
     child_parent = bg_data["child_parent"]
     parent_affirm = bg_data["parent_affirmative"]
+    entry_key = bg_data.get("entry_question_key")
+    entry_affirm_values = bg_data.get("entry_affirm_values", [])
+    question_lookup = bg_data.get("question_lookup", {})
     current_section = None
+    entry_answer = st.session_state.get(entry_key, "") if entry_key else ""
+    show_program_sections = (
+        not entry_key or (entry_answer and entry_answer in entry_affirm_values)
+    )
 
     for q in questions:
         section = q["section"]
@@ -747,12 +872,17 @@ def show_step_4_background_and_programs():
         optional = q["optional"]
 
         key = q["key"]
+
+        if section in PROGRAM_ONLY_SECTIONS and not show_program_sections:
+            clear_question_state(q)
+            continue
+
         parent_key = child_parent.get(key)
         if parent_key:
             allowed = parent_affirm.get(parent_key, [])
             parent_answer = st.session_state.get(parent_key, "")
             if not parent_answer or parent_answer not in allowed:
-                clear_state([key])
+                clear_question_state(q)
                 continue
 
         question_label = qtext + (" (선택)" if optional else "")
@@ -768,11 +898,10 @@ def show_step_4_background_and_programs():
                 label_visibility="collapsed",
             )
         elif qtype == "multi" and options:
-            st.multiselect(
-                "",
-                options,
+            render_multi_checkbox_grid(
                 key=key,
-                label_visibility="collapsed",
+                options=options,
+                option_keys=q.get("option_keys", []),
             )
         else:
             st.text_area(
@@ -785,7 +914,14 @@ def show_step_4_background_and_programs():
             allowed = parent_affirm.get(key, [])
             answer = st.session_state.get(key, "")
             if not answer or answer not in allowed:
-                clear_state(parent_children[key])
+                keys_to_clear: list[str] = []
+                for child_key in parent_children[key]:
+                    child_question = question_lookup.get(child_key)
+                    if child_question:
+                        keys_to_clear.extend(question_state_keys(child_question))
+                    else:
+                        keys_to_clear.append(child_key)
+                clear_state(keys_to_clear)
 
 
 def build_record():
@@ -870,12 +1006,18 @@ def render_navigation(step_labels):
                 st.rerun()
 
     with col3:
+        consent_ok = bool(st.session_state.get("consent_research"))
+        next_disabled = step == 0 and not consent_ok
+
         if step < total - 1:
-            if st.button("다음 단계 ▶"):
+            if st.button("다음 단계 ▶", disabled=next_disabled):
                 st.session_state["step"] = step + 1
                 st.rerun()
+            if next_disabled:
+                st.caption("연구 참여에 동의해야 다음 단계로 이동할 수 있습니다.")
         else:
-            if st.button("응답 제출"):
+            submit_disabled = not consent_ok
+            if st.button("응답 제출", disabled=submit_disabled):
                 record = build_record()
                 save_record_to_csv(record)
                 try:
@@ -886,6 +1028,8 @@ def render_navigation(step_labels):
                     )
                 st.success("응답이 저장되었습니다. 참여해 주셔서 감사합니다.")
                 st.balloons()
+            if submit_disabled:
+                st.caption("연구 참여 동의 후 제출할 수 있습니다.")
 
 
 # -------------------------------------------------------------------
