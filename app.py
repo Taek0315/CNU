@@ -29,20 +29,20 @@ st.set_page_config(
 CUSTOM_CSS = """
 <style>
 :root {
-    color-scheme: light;
-    --pill-bg: #ffffff;
-    --pill-bg-hover: #f3f4f6;
-    --pill-border: #d0d7de;
-    --pill-border-hover: #9ca3af;
-    --pill-text: #111827;
+    color-scheme: dark;
+    --pill-bg: rgba(15, 23, 42, 0.85);
+    --pill-bg-hover: rgba(30, 41, 59, 0.95);
+    --pill-border: rgba(148, 163, 184, 0.75);
+    --pill-border-hover: #93c5fd;
+    --pill-text: #f8fafc;
     --pill-selected-bg: #2563eb;
-    --pill-selected-border: #2563eb;
+    --pill-selected-border: #93c5fd;
     --pill-selected-text: #ffffff;
 }
 body,
 .stApp {
-    background-color: #f7f7f7;
-    color: #222222;
+    background-color: #050b18;
+    color: #f8fafc;
 }
 section.main > div,
 .main > div {
@@ -59,8 +59,8 @@ section.main > div,
 }
 .main,
 .block-container {
-    background-color: #ffffff;
-    color: #222222;
+    background-color: #0f172a;
+    color: #f8fafc;
 }
 h1,
 h2,
@@ -68,7 +68,7 @@ h3,
 h4,
 h5,
 h6 {
-    color: #111827;
+    color: #f8fafc;
 }
 [data-testid="stSidebar"] {
     width: 0 !important;
@@ -76,17 +76,17 @@ h6 {
 }
 .set-divider {
     border: none;
-    border-top: 1px solid #d0d7de;
+    border-top: 1px solid rgba(148, 163, 184, 0.45);
     margin: 1.5rem 0 1.25rem;
 }
 .survey-separator-thin {
     border: 0;
-    border-top: 1px solid rgba(15, 23, 42, 0.12);
-    margin: 0.75rem 0 1.15rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    margin: 0.5rem 0 1rem;
 }
 .survey-separator-thick {
     border: 0;
-    border-top: 2px solid rgba(15, 23, 42, 0.18);
+    border-top: 2px solid rgba(255, 255, 255, 0.35);
     margin: 1rem 0 1.5rem;
 }
 .scale-description {
@@ -94,11 +94,11 @@ h6 {
     font-weight: 500;
     margin-top: 0.75rem;
     margin-bottom: 0.75rem;
-    color: #111827;
+    color: #e2e8f0;
 }
 .scale-separator {
     border: 0;
-    border-top: 1px solid rgba(15, 23, 42, 0.16);
+    border-top: 1px solid rgba(255, 255, 255, 0.25);
     margin-bottom: 1.25rem;
 }
 [data-testid="stCheckbox"] > div {
@@ -124,6 +124,7 @@ h6 {
 [data-testid="stCheckbox"] > label {
     width: 100%;
     line-height: 1.3;
+    background-color: rgba(15, 23, 42, 0.9);
 }
 [data-testid="stCheckbox"] > label span {
     flex: 1;
@@ -153,9 +154,9 @@ input[type="email"],
 textarea,
 [data-baseweb="input"] input,
 [data-baseweb="textarea"] textarea {
-    background-color: #ffffff !important;
-    color: #111827 !important;
-    border: 1px solid #d0d7de !important;
+    background-color: rgba(15, 23, 42, 0.85) !important;
+    color: #f8fafc !important;
+    border: 1px solid rgba(148, 163, 184, 0.7) !important;
     border-radius: 0.6rem !important;
     padding: 0.5rem 0.75rem !important;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
@@ -166,22 +167,22 @@ input[type="email"]:focus,
 textarea:focus,
 [data-baseweb="input"] input:focus,
 [data-baseweb="textarea"] textarea:focus {
-    border-color: #2563eb !important;
-    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+    border-color: #93c5fd !important;
+    box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.4);
     outline: none;
 }
 [data-baseweb="input"],
 [data-baseweb="textarea"] {
-    background-color: #ffffff !important;
+    background-color: rgba(15, 23, 42, 0.85) !important;
     border-radius: 0.6rem !important;
 }
 input::placeholder,
 textarea::placeholder {
-    color: #9ca3af !important;
+    color: #94a3b8 !important;
 }
 input:-ms-input-placeholder,
 textarea:-ms-input-placeholder {
-    color: #9ca3af !important;
+    color: #94a3b8 !important;
 }
 </style>
 """
@@ -193,7 +194,7 @@ QUESTION_CSS = """
     font-size: 1.08rem;
     line-height: 1.65;
     margin-bottom: 0.45rem;
-    color: #111827;
+    color: #f8fafc;
 }
 [data-testid="stRadio"] {
     margin-bottom: 0.35rem;
