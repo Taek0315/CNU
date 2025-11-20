@@ -69,6 +69,13 @@ LIKERT_LABELS = [
     "매우 그렇다",
 ]
 
+BASIC_FIELD_DEFAULTS = {
+    "name": "",
+    "gender": "",
+    "student_id": "",
+    "consent_research": False,
+}
+
 
 def format_likert_option(value: int) -> str:
     """Likert 옵션을 '숫자\\n라벨' 형태로 렌더링."""
@@ -175,13 +182,19 @@ def save_record_to_google_sheet(record: dict):
     if worksheet is None:
         raise RuntimeError("Google 스프레드시트 워크시트를 열 수 없습니다.")
 
-    headers = list(record.keys())
-    values = [record[k] for k in headers]
-
     existing_header = worksheet.row_values(1)
     if not existing_header:
+        headers = list(record.keys())
         worksheet.append_row(headers, value_input_option="USER_ENTERED")
+        existing_header = headers
 
+    new_keys = [k for k in record.keys() if k not in existing_header]
+    if new_keys:
+        updated_header = existing_header + new_keys
+        worksheet.update("A1", [updated_header])
+        existing_header = updated_header
+
+    values = [record.get(k, "") for k in existing_header]
     worksheet.append_row(values, value_input_option="USER_ENTERED")
 
 
@@ -404,8 +417,11 @@ def show_step_1_main_scale():
 
     items = load_main_items()
 
+    first_area = True
     for area, df_area in items.groupby("area"):
-        st.markdown(f"#### 영역: {area}")
+        if not first_area:
+            st.divider()
+        first_area = False
         for subscale, df_sub in df_area.groupby("subscale"):
             for _, row in df_sub.iterrows():
                 num_str = str(row["item_no"]).strip()
@@ -433,8 +449,9 @@ def show_step_2_belonging_and_informal():
     current_area = None
     for block in blocks:
         if block["area"] != current_area:
+            if current_area is not None:
+                st.divider()
             current_area = block["area"]
-            st.markdown(f"#### 영역: {current_area}")
 
         dim = block["dimension"]
 
@@ -484,8 +501,9 @@ def show_step_3_dropout_scanning():
 
     for block in blocks:
         if block["axis"] != current_axis:
+            if current_axis is not None:
+                st.divider()
             current_axis = block["axis"]
-            st.markdown(f"#### 축: {current_axis}")
 
         # (1) 예/아니오
         yn_key = make_key("drop", current_axis, block["row_index"], "yn")
@@ -534,8 +552,9 @@ def show_step_4_background_and_programs():
     for q in questions:
         section = q["section"]
         if section != current_section:
+            if current_section is not None:
+                st.divider()
             current_section = section
-            st.markdown(f"#### 영역: {current_section}")
 
         qtext = q["question"]
         options = [clean_option(o) for o in q["options"]]
@@ -578,11 +597,16 @@ def show_step_4_background_and_programs():
 
 def build_record():
     """session_state에 모인 응답을 한 행짜리 dict로 정리."""
-    record = {
-        "submitted_at": datetime.now().isoformat(timespec="seconds"),
-    }
+    record = {}
+    record["submitted_at"] = datetime.now().isoformat(timespec="seconds")
+
+    for key, default in BASIC_FIELD_DEFAULTS.items():
+        record[key] = normalize_value(st.session_state.get(key, default))
+
     keys = st.session_state.get("question_keys", [])
     for k in keys:
+        if k in record:
+            continue
         record[k] = normalize_value(st.session_state.get(k))
     return record
 
@@ -640,13 +664,12 @@ def main():
     step = max(0, min(step, len(step_labels) - 1))
     st.session_state["step"] = step
 
-    st.title("충남대학교 창의융합대학 종단연구 설문")
+    if step == 0:
+        st.title("충남대학교 창의융합대학 종단연구 설문")
 
     st.write(
         f"**현재 단계:** {step + 1} / {len(step_labels)} — {step_labels[step]}"
     )
-
-    st.progress((step + 1) / len(step_labels))
 
     if step == 0:
         show_step_0_consent_and_basic()
