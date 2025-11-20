@@ -30,6 +30,14 @@ CUSTOM_CSS = """
 <style>
 :root {
     color-scheme: light;
+    --pill-bg: #f3f4f6;
+    --pill-bg-hover: #e5e7eb;
+    --pill-border: #d0d7de;
+    --pill-border-hover: #9ca3af;
+    --pill-text: #111827;
+    --pill-selected-bg: #1f6feb;
+    --pill-selected-border: #1f6feb;
+    --pill-selected-text: #ffffff;
 }
 body,
 .stApp {
@@ -97,26 +105,37 @@ h6 {
     align-items: center;
 }
 [data-testid="stCheckbox"] > label {
-    border: 1px solid #d0d7de;
+    border: 1px solid var(--pill-border);
     border-radius: 999px;
-    padding: 0.35rem 0.75rem;
+    padding: 0.4rem 0.95rem;
     width: 100%;
     display: flex;
     gap: 0.35rem;
-    background-color: #ffffff;
-    color: #1f2328;
+    background-color: var(--pill-bg);
+    color: var(--pill-text);
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.25;
     transition: all 0.15s ease;
 }
 [data-testid="stCheckbox"] > label span {
     flex: 1;
-}
-[data-testid="stCheckbox"] > label:has(input:checked) {
-    background-color: #1f6feb;
-    border-color: #1f6feb;
-    color: #ffffff;
+    color: inherit;
 }
 [data-testid="stCheckbox"] > label:hover {
-    border-color: #1f6feb;
+    border-color: var(--pill-border-hover);
+    background-color: var(--pill-bg-hover);
+    color: var(--pill-text);
+}
+[data-testid="stCheckbox"] > label:has(input:checked) {
+    background-color: var(--pill-selected-bg);
+    border-color: var(--pill-selected-border);
+    color: var(--pill-selected-text);
+}
+[data-testid="stCheckbox"] > label:has(input:checked):hover {
+    background-color: var(--pill-selected-bg);
+    border-color: var(--pill-selected-border);
+    color: var(--pill-selected-text);
 }
 </style>
 """
@@ -139,41 +158,58 @@ QUESTION_CSS = """
     margin-top: 0.35rem;
 }
 [data-testid="stRadio"] label[data-baseweb="radio"] {
-    border: 1px solid #d0d7de;
+    border: 1px solid var(--pill-border);
     border-radius: 999px;
-    padding: 0.32rem 0.85rem;
-    min-width: 2.75rem;
+    padding: 0.4rem 1rem;
+    min-width: 2.85rem;
     justify-content: center;
     line-height: 1.2;
-    background-color: #ffffff;
-    color: #1f2328;
+    background-color: var(--pill-bg);
+    color: var(--pill-text);
+    font-size: 1rem;
+    font-weight: 600;
     transition: all 0.15s ease;
 }
+[data-testid="stRadio"] label[data-baseweb="radio"] > div {
+    color: inherit;
+}
 [data-testid="stRadio"] label[data-baseweb="radio"]:hover {
-    border-color: #1f6feb;
+    border-color: var(--pill-border-hover);
+    background-color: var(--pill-bg-hover);
+    color: var(--pill-text);
 }
 [data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
-    background-color: #1f6feb;
-    color: #ffffff;
-    border-color: #1f6feb;
+    background-color: var(--pill-selected-bg);
+    color: var(--pill-selected-text);
+    border-color: var(--pill-selected-border);
+}
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div {
+    color: inherit;
+}
+[data-testid="stPills"] {
+    margin-top: 0.25rem;
 }
 [data-testid="stPills"] button {
     border-radius: 999px;
-    border: 1px solid #d0d7de;
-    background-color: #ffffff;
-    color: #1f2328;
-    padding: 0.35rem 0.9rem;
-    margin: 0.25rem 0.35rem 0.25rem 0;
+    border: 1px solid var(--pill-border);
+    background-color: var(--pill-bg);
+    color: var(--pill-text);
+    padding: 0.45rem 1.05rem;
+    margin: 0.25rem 0.45rem 0.25rem 0;
     transition: all 0.15s ease;
-    font-size: 0.95rem;
+    font-size: 1rem;
+    font-weight: 600;
+    min-width: 2.75rem;
 }
 [data-testid="stPills"] button:hover {
-    border-color: #1f6feb;
+    border-color: var(--pill-border-hover);
+    background-color: var(--pill-bg-hover);
+    color: var(--pill-text);
 }
 [data-testid="stPills"] button[aria-pressed="true"] {
-    background-color: #1f6feb;
-    color: #ffffff;
-    border-color: #1f6feb;
+    background-color: var(--pill-selected-bg);
+    color: var(--pill-selected-text);
+    border-color: var(--pill-selected-border);
 }
 @media (max-width: 420px) {
     [data-testid="stRadio"] > div {
