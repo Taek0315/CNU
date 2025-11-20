@@ -28,9 +28,17 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
+section.main > div,
 .main > div {
     max-width: 900px;
     margin: 0 auto;
+    padding: 0 1.5rem 2rem;
+}
+@media (max-width: 640px) {
+    section.main > div,
+    .main > div {
+        padding: 0 1rem 2rem;
+    }
 }
 [data-testid="stSidebar"] {
     width: 0 !important;
@@ -52,9 +60,28 @@ st.markdown(QUESTION_CSS, unsafe_allow_html=True)
 
 LIKERT_CSS = """
 <style>
+[data-testid="stRadio"] > div {
+    gap: 0.5rem !important;
+}
+[data-testid="stRadio"] label {
+    width: 100%;
+    border: 1px solid #dfe3eb;
+    border-radius: 0.75rem;
+    padding: 0.75rem 1rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+}
+[data-testid="stRadio"] label:hover {
+    border-color: #4c9aff;
+}
 [data-testid="stRadio"] label p {
     white-space: pre-line;
     text-align: center;
+    font-size: 1rem;
+    line-height: 1.4;
+    margin: 0;
+    flex: 1;
 }
 </style>
 """
@@ -67,6 +94,24 @@ LIKERT_LABELS = [
     "보통이다",
     "그렇다",
     "매우 그렇다",
+]
+
+VALIDITY_ITEM_SPECS = [
+    {
+        "position": 23,
+        "key": "validity_1",
+        "text": "다음 보기 중 매우 그렇지 않다를 선택해주세요",
+    },
+    {
+        "position": 44,
+        "key": "validity_2",
+        "text": "다음 보기 중 2번을 선택해주세요",
+    },
+    {
+        "position": 65,
+        "key": "validity_3",
+        "text": "다음 보기 중 1+3의 값에 해당되는 숫자를 선택해주세요.",
+    },
 ]
 
 BASIC_FIELD_DEFAULTS = {
@@ -239,6 +284,50 @@ def load_main_items(path: Path = SURVEY_FILE) -> pd.DataFrame:
     return items
 
 
+def inject_validity_items(items: list[dict]) -> list[dict]:
+    """메인 Likert 문항 사이에 주어진 위치로 타당도 문항을 삽입."""
+    if not items:
+        return items
+
+    sequence = list(items)
+    specs = sorted(VALIDITY_ITEM_SPECS, key=lambda spec: spec["position"])
+    for spec in specs:
+        insert_idx = max(0, min(spec["position"] - 1, len(sequence)))
+        reference_idx = min(max(insert_idx - 1, 0), len(sequence) - 1)
+        reference = sequence[reference_idx]
+        sequence.insert(
+            insert_idx,
+            {
+                "area": reference.get("area"),
+                "subscale": reference.get("subscale"),
+                "item_no": None,
+                "text": spec["text"],
+                "key": spec["key"],
+                "is_validity": True,
+            },
+        )
+    return sequence
+
+
+def build_main_scale_sequence() -> list[dict]:
+    """엑셀 문항 + 타당도 문항을 포함한 순차 리스트 생성."""
+    df = load_main_items()
+    questions = []
+    for _, row in df.iterrows():
+        num_str = str(row["item_no"]).strip()
+        questions.append(
+            {
+                "area": row["area"],
+                "subscale": row["subscale"],
+                "item_no": num_str,
+                "text": str(row["item_text"]).strip(),
+                "key": make_key("quant", row["area"], row["subscale"], f"Q{num_str}"),
+                "is_validity": False,
+            }
+        )
+    return inject_validity_items(questions)
+
+
 def load_belong_blocks(path: Path = SURVEY_FILE):
     """
     [대학 소속감 및 비공식관계망] 시트에서
@@ -397,7 +486,7 @@ def show_step_0_consent_and_basic():
         ["남", "여", "기타/응답 거절"],
         index=None,
         key=gender_key,
-        horizontal=True,
+        horizontal=False,
     )
     st.text_input("학번", key=sid_key)
 
@@ -415,30 +504,28 @@ def show_step_0_consent_and_basic():
 def show_step_1_main_scale():
     st.markdown("### 1. 전공 및 진로 확신, 학습 역량 측정 문항")
 
-    items = load_main_items()
+    items = build_main_scale_sequence()
 
-    first_area = True
-    for area, df_area in items.groupby("area"):
-        if not first_area:
-            st.divider()
-        first_area = False
-        for subscale, df_sub in df_area.groupby("subscale"):
-            for _, row in df_sub.iterrows():
-                num_str = str(row["item_no"]).strip()
-                label = f"{num_str}. {row['item_text']}"
-                key = make_key("quant", area, subscale, f"Q{num_str}")
+    current_area = None
+    for item in items:
+        area = item.get("area")
+        if area != current_area:
+            if current_area is not None:
+                st.divider()
+            current_area = area
 
-                register_key(key)
-                render_question_text(label)
-                st.radio(
-                    "",
-                    LIKERT_VALUES,
-                    index=None,
-                    key=key,
-                    horizontal=True,
-                    format_func=format_likert_option,
-                    label_visibility="collapsed",
-                )
+        key = item["key"]
+        register_key(key)
+        render_question_text(item["text"])
+        st.radio(
+            "",
+            LIKERT_VALUES,
+            index=None,
+            key=key,
+            horizontal=False,
+            format_func=format_likert_option,
+            label_visibility="collapsed",
+        )
 
 
 def show_step_2_belonging_and_informal():
@@ -464,7 +551,7 @@ def show_step_2_belonging_and_informal():
             [clean_option(block["yes_label"]), clean_option(block["no_label"])],
             index=None,
             key=yn_key,
-            horizontal=True,
+            horizontal=False,
             label_visibility="collapsed",
         )
 
@@ -478,7 +565,7 @@ def show_step_2_belonging_and_informal():
             freq_opts,
             index=None,
             key=freq_key,
-            horizontal=True,
+            horizontal=False,
             label_visibility="collapsed",
         )
 
@@ -514,7 +601,7 @@ def show_step_3_dropout_scanning():
             [clean_option(block["yes_label"]), clean_option(block["no_label"])],
             index=None,
             key=yn_key,
-            horizontal=True,
+            horizontal=False,
             label_visibility="collapsed",
         )
 
@@ -528,7 +615,7 @@ def show_step_3_dropout_scanning():
             freq_opts,
             index=None,
             key=freq_key,
-            horizontal=True,
+            horizontal=False,
             label_visibility="collapsed",
         )
 
@@ -574,7 +661,7 @@ def show_step_4_background_and_programs():
                 options,
                 index=None,
                 key=key,
-                horizontal=True,
+                horizontal=False,
                 label_visibility="collapsed",
             )
         elif qtype == "multi" and options:
@@ -666,10 +753,6 @@ def main():
 
     if step == 0:
         st.title("충남대학교 창의융합대학 종단연구 설문")
-
-    st.write(
-        f"**현재 단계:** {step + 1} / {len(step_labels)} — {step_labels[step]}"
-    )
 
     if step == 0:
         show_step_0_consent_and_basic()
