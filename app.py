@@ -416,9 +416,20 @@ def render_pills(
     """Streamlit pills helper with consistent styling."""
     register_key(key)
     formatter = format_func or (lambda x: x)
+    saved_value = get_saved_value(key, None)
+    default_value = None
+    if selection_mode == "single":
+        if saved_value in options:
+            default_value = saved_value
+    else:
+        if isinstance(saved_value, (list, tuple, set)):
+            default_candidates = [opt for opt in saved_value if opt in options]
+            if default_candidates:
+                default_value = default_candidates
     value = st.pills(
         "",
         options=options,
+        default=default_value,
         key=key,
         selection_mode=selection_mode,
         format_func=formatter,
@@ -470,6 +481,45 @@ def render_multi_checkbox_grid(
     st.session_state[key] = selected
     record_answer(key, selected)
     return selected
+
+
+def render_single_choice_radio(
+    *,
+    key: str,
+    options: list | None,
+    label: str = "",
+    horizontal: bool = False,
+    label_visibility: str = "collapsed",
+):
+    """일반 라디오 그룹을 렌더링하면서 빈 옵션을 제거하고 기본값을 복원."""
+    register_key(key)
+    cleaned_options: list = []
+    if options:
+        for opt in options:
+            if isinstance(opt, str):
+                normalized = clean_option(opt)
+                if normalized:
+                    cleaned_options.append(normalized)
+            elif opt is not None:
+                cleaned_options.append(opt)
+    if not cleaned_options:
+        record_answer(key, None)
+        return None
+
+    saved_value = get_saved_value(key, None)
+    default_index = None
+    if saved_value in cleaned_options:
+        default_index = cleaned_options.index(saved_value)
+
+    value = st.radio(
+        label,
+        cleaned_options,
+        index=default_index,
+        key=key,
+        horizontal=horizontal,
+        label_visibility=label_visibility,
+    )
+    return record_answer(key, value)
 
 
 # -------------------------------------------------------------------
@@ -1251,12 +1301,14 @@ def show_step_1_main_scale():
 
 def show_step_2_belonging_and_informal():
     render_section_intro(SECTION_METADATA.get("belonging"))
+    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
 
     blocks = get_belong_blocks_with_keys()
 
     current_area = None
     total_blocks = len(blocks)
     for idx, block in enumerate(blocks):
+        display_idx = idx + 1
         if block["area"] != current_area:
             if current_area is not None:
                 st.divider()
@@ -1264,7 +1316,9 @@ def show_step_2_belonging_and_informal():
 
         # (1) 예/아니오 스크리닝
         yn_key = block["yes_key"]
-        render_question_text(block["yesno_question"])
+        yn_label = block["yesno_question"] or ""
+        numbered_label = f"{display_idx}. {yn_label}" if yn_label else f"{display_idx}."
+        render_question_text(numbered_label)
         yn_answer = render_pills(
             [block["yes_value"], block["no_value"]],
             key=yn_key,
@@ -1280,15 +1334,11 @@ def show_step_2_belonging_and_informal():
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
             if freq_opts:
-                freq_value = st.radio(
-                    "",
-                    freq_opts,
-                    index=None,
+                render_single_choice_radio(
                     key=block["freq_key"],
+                    options=freq_opts,
                     horizontal=False,
-                    label_visibility="collapsed",
                 )
-                record_answer(block["freq_key"], freq_value)
             else:
                 st.info("제공된 빈도 선택지가 없어 이 문항은 건너뜁니다.")
                 record_answer(block["freq_key"], "")
@@ -1312,11 +1362,12 @@ def show_step_2_belonging_and_informal():
 
 def show_step_3_dropout_scanning():
     render_section_intro(SECTION_METADATA.get("dropout"))
+    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
 
     blocks = get_dropout_blocks_with_keys()
     current_axis = None
 
-    for block in blocks:
+    for idx, block in enumerate(blocks, start=1):
         if block["axis"] != current_axis:
             if current_axis is not None:
                 st.divider()
@@ -1324,7 +1375,9 @@ def show_step_3_dropout_scanning():
 
         # (1) 예/아니오
         yn_key = block["yes_key"]
-        render_question_text(block["yesno_question"])
+        yn_label = block["yesno_question"] or ""
+        numbered_label = f"{idx}. {yn_label}" if yn_label else f"{idx}."
+        render_question_text(numbered_label)
         yn_answer = render_pills(
             [block["yes_value"], block["no_value"]],
             key=yn_key,
@@ -1340,15 +1393,11 @@ def show_step_3_dropout_scanning():
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
             if freq_opts:
-                freq_value = st.radio(
-                    "",
-                    freq_opts,
-                    index=None,
+                render_single_choice_radio(
                     key=block["freq_key"],
+                    options=freq_opts,
                     horizontal=False,
-                    label_visibility="collapsed",
                 )
-                record_answer(block["freq_key"], freq_value)
             else:
                 st.info("제공된 빈도 선택지가 없어 이 문항은 건너뜁니다.")
                 record_answer(block["freq_key"], "")
@@ -1367,6 +1416,7 @@ def show_step_3_dropout_scanning():
 
 def show_step_4_background_and_programs():
     render_section_intro(SECTION_METADATA.get("background"))
+    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
 
     bg_data = get_background_question_bank()
     questions = bg_data["questions"]
@@ -1384,6 +1434,7 @@ def show_step_4_background_and_programs():
     first_choice_key, first_choice_major_key = get_first_choice_major_meta(questions)
     visible_required_entries: list[dict[str, str]] = []
     visible_required_keys: set[str] = set()
+    question_counter = 1
 
     def mark_required(key: str | None, label: str | None):
         if not key or not label:
@@ -1428,7 +1479,13 @@ def show_step_4_background_and_programs():
                     reset_answer(first_choice_major_key)
                 continue
 
-        question_label = qtext
+        question_label = qtext or ""
+        if not q.get("is_followup"):
+            if question_label:
+                question_label = f"{question_counter}. {question_label}"
+            else:
+                question_label = f"{question_counter}."
+            question_counter += 1
         render_question_text(question_label)
 
         if qtype == "single" and options:
@@ -1438,15 +1495,11 @@ def show_step_4_background_and_programs():
                     key=key,
                 )
             else:
-                value = st.radio(
-                    "",
-                    options,
-                    index=None,
+                render_single_choice_radio(
                     key=key,
+                    options=options,
                     horizontal=False,
-                    label_visibility="collapsed",
                 )
-                record_answer(key, value)
         elif qtype == "multi" and options:
             render_multi_checkbox_grid(
                 key=key,
