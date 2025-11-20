@@ -132,6 +132,60 @@ BASIC_FIELD_DEFAULTS = {
 }
 
 
+def get_response_store() -> dict[str, object]:
+    """Widget 값이 사라져도 보존되는 응답 저장소."""
+    if "_response_store" not in st.session_state:
+        st.session_state["_response_store"] = {}
+    return st.session_state["_response_store"]
+
+
+def get_registered_keys() -> list[str]:
+    """CSV/구글 시트 헤더 생성을 위한 키 목록."""
+    if "question_keys" not in st.session_state:
+        st.session_state["question_keys"] = []
+    return st.session_state["question_keys"]
+
+
+def register_key(key: str | None):
+    """위젯/컬럼 키를 등록하고, 저장소에 값이 있으면 위젯 상태를 복원."""
+    if not key:
+        return
+    keys = get_registered_keys()
+    if key not in keys:
+        keys.append(key)
+    store = get_response_store()
+    if key in store and key not in st.session_state:
+        st.session_state[key] = store[key]
+
+
+def record_answer(key: str | None, value):
+    """현재 선택/입력 값을 별도 저장소에 기록."""
+    if not key:
+        return value
+    store = get_response_store()
+    store[key] = value
+    return value
+
+
+def get_saved_value(key: str, default=None):
+    """위젯이 언마운트되어도 마지막 응답 값을 반환."""
+    store = get_response_store()
+    if key in store:
+        return store[key]
+    return st.session_state.get(key, default)
+
+
+def reset_answer(key: str | None):
+    """특정 키의 응답 값을 완전히 제거."""
+    if not key:
+        return
+    store = get_response_store()
+    if key in store:
+        del store[key]
+    if key in st.session_state:
+        del st.session_state[key]
+
+
 def render_question_text(text: str):
     """모바일 가독성을 높인 질문 텍스트 렌더러."""
     if not text:
@@ -148,8 +202,9 @@ def render_pills(
     format_func=None,
 ):
     """Streamlit pills helper with consistent styling."""
+    register_key(key)
     formatter = format_func or (lambda x: x)
-    return st.pills(
+    value = st.pills(
         "",
         options=options,
         key=key,
@@ -158,6 +213,7 @@ def render_pills(
         width="stretch",
         label_visibility="collapsed",
     )
+    return record_answer(key, value)
 
 
 def render_multi_checkbox_grid(
@@ -169,6 +225,7 @@ def render_multi_checkbox_grid(
     grid_threshold: int = 3,
 ):
     """복수 선택 항목을 칩 형태의 체크박스로 그리드 배치."""
+    register_key(key)
     stored = st.session_state.get(key, [])
     if not isinstance(stored, list):
         stored = []
@@ -199,6 +256,7 @@ def render_multi_checkbox_grid(
         if st.session_state.get(option_keys[i], False)
     ]
     st.session_state[key] = selected
+    record_answer(key, selected)
     return selected
 
 
@@ -242,8 +300,7 @@ def render_scale_description(
 def clear_state(keys: list[str]):
     """조건 불충족 시 하위 문항 값을 초기화."""
     for key in keys:
-        if key and key in st.session_state:
-            del st.session_state[key]
+        reset_answer(key)
 
 
 def question_state_keys(question: dict) -> list[str]:
@@ -698,7 +755,7 @@ def is_answer_missing(value) -> bool:
 def validate_main_scale_required() -> bool:
     """메인 척도 전체 문항 응답 확인."""
     for item in get_main_scale_items():
-        value = st.session_state.get(item["key"])
+        value = get_saved_value(item["key"])
         if is_answer_missing(value):
             st.warning("모든 전공 및 진로 확신 · 학습 역량 문항에 응답해주세요.")
             return False
@@ -708,7 +765,7 @@ def validate_main_scale_required() -> bool:
 def validate_yesno_screeners(blocks: list[dict], warning_message: str) -> bool:
     """예/아니오 스크리닝 문항 응답 확인."""
     for block in blocks:
-        value = st.session_state.get(block["yes_key"])
+        value = get_saved_value(block["yes_key"])
         if is_answer_missing(value):
             st.warning(warning_message)
             return False
@@ -745,27 +802,33 @@ def show_step_0_consent_and_basic():
     sid_key = "student_id"
 
     render_question_text("이름")
-    st.text_input(
+    register_key(name_key)
+    name_value = st.text_input(
         "",
         key=name_key,
         label_visibility="collapsed",
         placeholder="이름을 입력하세요",
     )
+    record_answer(name_key, name_value)
 
     render_question_text("성별")
     render_pills(["남자", "여자"], key=gender_key)
 
     render_question_text("학번")
-    st.text_input(
+    register_key(sid_key)
+    sid_value = st.text_input(
         "",
         key=sid_key,
         label_visibility="collapsed",
         placeholder="학번을 입력하세요",
     )
+    record_answer(sid_key, sid_value)
 
     consent_key = "consent_research"
     render_question_text("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.")
-    st.checkbox("동의합니다.", key=consent_key)
+    register_key(consent_key)
+    consent_value = st.checkbox("동의합니다.", key=consent_key)
+    record_answer(consent_key, consent_value)
 
     st.info("※ 동의 여부와 상관없이 언제든지 설문 참여를 중단하실 수 있습니다.")
 
@@ -816,12 +879,14 @@ def show_step_2_belonging_and_informal():
 
         show_followups = yn_answer == block["yes_value"]
         followup_keys = [block["freq_key"], block["open_key"]]
+        for fk in followup_keys:
+            register_key(fk)
 
         if show_followups:
             # (2) 빈도
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
-            st.radio(
+            freq_value = st.radio(
                 "",
                 freq_opts,
                 index=None,
@@ -829,14 +894,16 @@ def show_step_2_belonging_and_informal():
                 horizontal=False,
                 label_visibility="collapsed",
             )
+            record_answer(block["freq_key"], freq_value)
 
             # (3) 서술형
             render_question_text(block["open_question"])
-            st.text_area(
+            open_value = st.text_area(
                 "",
                 key=block["open_key"],
                 label_visibility="collapsed",
             )
+            record_answer(block["open_key"], open_value)
         else:
             clear_state(followup_keys)
 
@@ -866,12 +933,14 @@ def show_step_3_dropout_scanning():
 
         show_followups = yn_answer == block["yes_value"]
         followup_keys = [block["freq_key"], block["open_key"]]
+        for fk in followup_keys:
+            register_key(fk)
 
         if show_followups:
             # (2) 빈도
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
-            st.radio(
+            freq_value = st.radio(
                 "",
                 freq_opts,
                 index=None,
@@ -879,14 +948,16 @@ def show_step_3_dropout_scanning():
                 horizontal=False,
                 label_visibility="collapsed",
             )
+            record_answer(block["freq_key"], freq_value)
 
             # (3) 서술형
             render_question_text(block["open_question"])
-            st.text_area(
+            open_value = st.text_area(
                 "",
                 key=block["open_key"],
                 label_visibility="collapsed",
             )
+            record_answer(block["open_key"], open_value)
         else:
             clear_state(followup_keys)
 
@@ -903,7 +974,7 @@ def show_step_4_background_and_programs():
     entry_affirm_values = bg_data.get("entry_affirm_values", [])
     question_lookup = bg_data.get("question_lookup", {})
     current_section = None
-    entry_answer = st.session_state.get(entry_key, "") if entry_key else ""
+    entry_answer = get_saved_value(entry_key, "") if entry_key else ""
     show_program_sections = (
         not entry_key or (entry_answer and entry_answer in entry_affirm_values)
     )
@@ -921,6 +992,7 @@ def show_step_4_background_and_programs():
         optional = q["optional"]
 
         key = q["key"]
+        register_key(key)
 
         if section in PROGRAM_ONLY_SECTIONS and not show_program_sections:
             clear_question_state(q)
@@ -929,7 +1001,7 @@ def show_step_4_background_and_programs():
         parent_key = child_parent.get(key)
         if parent_key:
             allowed = parent_affirm.get(parent_key, [])
-            parent_answer = st.session_state.get(parent_key, "")
+            parent_answer = get_saved_value(parent_key, "")
             if not parent_answer or parent_answer not in allowed:
                 clear_question_state(q)
                 continue
@@ -944,7 +1016,7 @@ def show_step_4_background_and_programs():
                     key=key,
                 )
             else:
-                st.radio(
+                value = st.radio(
                     "",
                     options,
                     index=None,
@@ -952,6 +1024,7 @@ def show_step_4_background_and_programs():
                     horizontal=False,
                     label_visibility="collapsed",
                 )
+                record_answer(key, value)
         elif qtype == "multi" and options:
             render_multi_checkbox_grid(
                 key=key,
@@ -959,15 +1032,16 @@ def show_step_4_background_and_programs():
                 option_keys=q.get("option_keys", []),
             )
         else:
-            st.text_area(
+            value = st.text_area(
                 "",
                 key=key,
                 label_visibility="collapsed",
             )
+            record_answer(key, value)
 
         if key in parent_children:
             allowed = parent_affirm.get(key, [])
-            answer = st.session_state.get(key, "")
+            answer = get_saved_value(key, "")
             if not answer or answer not in allowed:
                 keys_to_clear: list[str] = []
                 for child_key in parent_children[key]:
@@ -985,7 +1059,7 @@ def build_record():
     record["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     for key, default in BASIC_FIELD_DEFAULTS.items():
-        value = st.session_state.get(key, default)
+        value = get_saved_value(key, default)
         if key == "consent_research":
             record[key] = bool(value)
         else:
@@ -993,19 +1067,19 @@ def build_record():
 
     # 1. 메인 Likert 척도 (타당도 문항 포함)
     for item in get_main_scale_items():
-        record[item["key"]] = normalize_value(st.session_state.get(item["key"], ""))
+        record[item["key"]] = normalize_value(get_saved_value(item["key"], ""))
 
     # 2. 소속감/비공식 관계망
     for block in get_belong_blocks_with_keys():
-        yn_value = st.session_state.get(block["yes_key"], "")
+        yn_value = get_saved_value(block["yes_key"], "")
         record[block["yes_key"]] = normalize_value(yn_value)
         followup_allowed = yn_value == block["yes_value"]
         if followup_allowed:
             record[block["freq_key"]] = normalize_value(
-                st.session_state.get(block["freq_key"], "")
+                get_saved_value(block["freq_key"], "")
             )
             record[block["open_key"]] = normalize_value(
-                st.session_state.get(block["open_key"], "")
+                get_saved_value(block["open_key"], "")
             )
         else:
             record[block["freq_key"]] = ""
@@ -1013,15 +1087,15 @@ def build_record():
 
     # 3. 중도탈락 스캐닝
     for block in get_dropout_blocks_with_keys():
-        yn_value = st.session_state.get(block["yes_key"], "")
+        yn_value = get_saved_value(block["yes_key"], "")
         record[block["yes_key"]] = normalize_value(yn_value)
         followup_allowed = yn_value == block["yes_value"]
         if followup_allowed:
             record[block["freq_key"]] = normalize_value(
-                st.session_state.get(block["freq_key"], "")
+                get_saved_value(block["freq_key"], "")
             )
             record[block["open_key"]] = normalize_value(
-                st.session_state.get(block["open_key"], "")
+                get_saved_value(block["open_key"], "")
             )
         else:
             record[block["freq_key"]] = ""
@@ -1037,12 +1111,12 @@ def build_record():
         parent_key = child_parent.get(key)
         if parent_key:
             allowed = parent_affirm.get(parent_key, [])
-            parent_answer = st.session_state.get(parent_key, "")
+            parent_answer = get_saved_value(parent_key, "")
             if not parent_answer or parent_answer not in allowed:
                 record[key] = ""
                 continue
 
-        record[key] = normalize_value(st.session_state.get(key, ""))
+        record[key] = normalize_value(get_saved_value(key, ""))
 
     return record
 
@@ -1061,7 +1135,7 @@ def render_navigation(step_labels):
                 st.rerun()
 
     with col3:
-        consent_ok = bool(st.session_state.get("consent_research"))
+        consent_ok = bool(get_saved_value("consent_research", False))
         next_disabled = step == 0 and not consent_ok
 
         if step < total - 1:
