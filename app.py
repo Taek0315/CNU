@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     import gspread
@@ -490,6 +491,20 @@ def clean_option(opt: str) -> str:
     return re.sub(r"^[■□❑◻︎\s]+", "", opt).strip()
 
 
+def sanitize_option_list(options: list[str] | None) -> list[str]:
+    """빈 문자열이나 None이 섞인 옵션 목록을 정리."""
+    cleaned: list[str] = []
+    if not options:
+        return cleaned
+    for opt in options:
+        if not isinstance(opt, str):
+            continue
+        normalized = clean_option(opt)
+        if isinstance(normalized, str) and normalized.strip():
+            cleaned.append(normalized.strip())
+    return cleaned
+
+
 def normalize_value(v):
     """CSV 저장 전에 리스트/튜플을 문자열로 변환."""
     if isinstance(v, (list, tuple)):
@@ -513,6 +528,35 @@ def question_state_keys(question: dict) -> list[str]:
 def clear_question_state(question: dict):
     """주어진 문항 관련 상태를 모두 초기화."""
     clear_state(question_state_keys(question))
+
+
+def set_visible_background_required(required_entries: list[dict[str, str]]):
+    """현재 렌더링된 배경 문항 중 필수 응답 키/라벨 목록을 저장."""
+    st.session_state["_bg_visible_required"] = required_entries
+
+
+def get_visible_background_required() -> list[dict[str, str]]:
+    """현재 화면에서 필수로 노출된 배경 문항 목록을 반환."""
+    entries = st.session_state.get("_bg_visible_required", [])
+    if isinstance(entries, list):
+        return entries
+    return []
+
+
+def scroll_to_top():
+    """단계 이동 후 화면을 최상단으로 스크롤."""
+    components.html(
+        """
+        <script>
+        const mainSection = window.parent?.document?.querySelector('section.main');
+        if (mainSection) {
+            mainSection.scrollTo(0, 0);
+        }
+        window.parent?.scrollTo?.(0, 0);
+        </script>
+        """,
+        height=0,
+    )
 
 
 def save_record_to_csv(record: dict, filename: str = OUTPUT_CSV):
@@ -703,11 +747,13 @@ def load_belong_blocks(path: Path = SURVEY_FILE):
         freq_row = df.loc[idx + 1]
         open_row = df.loc[idx + 2]
 
-        freq_opts = [
-            freq_row[c]
-            for c in ["Unnamed: 3", "Unnamed: 4", "Unnamed: 5", "Unnamed: 6", "Unnamed: 7"]
-            if isinstance(freq_row[c], str)
-        ]
+        freq_opts = []
+        for c in ["Unnamed: 3", "Unnamed: 4", "Unnamed: 5", "Unnamed: 6", "Unnamed: 7"]:
+            value = freq_row.get(c)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    freq_opts.append(stripped)
 
         block = {
             "area": yes_row["area"],
@@ -751,11 +797,13 @@ def load_dropout_blocks(path: Path = SURVEY_FILE):
         freq_row = df.loc[idx + 1]
         open_row = df.loc[idx + 2]
 
-        freq_opts = [
-            freq_row[c]
-            for c in ["Unnamed: 2", "Unnamed: 3", "Unnamed: 4", "Unnamed: 5", "Unnamed: 6"]
-            if isinstance(freq_row[c], str)
-        ]
+        freq_opts = []
+        for c in ["Unnamed: 2", "Unnamed: 3", "Unnamed: 4", "Unnamed: 5", "Unnamed: 6"]:
+            value = freq_row.get(c)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    freq_opts.append(stripped)
 
         block = {
             "axis": yes_row["대학생 이탈 방지 질문지"],
@@ -877,7 +925,7 @@ def get_belong_blocks_with_keys() -> list[dict]:
                 "open_key": f"{key_prefix}_open",
                 "yes_value": clean_option(block["yes_label"]),
                 "no_value": clean_option(block["no_label"]),
-                "freq_options": [clean_option(opt) for opt in block["freq_options"]],
+                "freq_options": sanitize_option_list(block["freq_options"]),
             }
         )
     return annotated
@@ -897,7 +945,7 @@ def get_dropout_blocks_with_keys() -> list[dict]:
                 "open_key": f"{key_prefix}_open",
                 "yes_value": clean_option(block["yes_label"]),
                 "no_value": clean_option(block["no_label"]),
-                "freq_options": [clean_option(opt) for opt in block["freq_options"]],
+                "freq_options": sanitize_option_list(block["freq_options"]),
             }
         )
     return annotated
@@ -909,7 +957,7 @@ def get_background_question_bank():
     questions = []
     entry_question = None
     for q in load_background_questions():
-        options = [clean_option(opt) for opt in q["options"]]
+        options = sanitize_option_list(q["options"])
         note = clean_option(q["note"]) if q.get("note") else None
         key = make_key("bg", q["section"], q["idx"])
         option_keys = [f"{key}__opt_{idx}" for idx in range(len(options))]
@@ -919,6 +967,7 @@ def get_background_question_bank():
             "note": note,
             "key": key,
             "option_keys": option_keys,
+            "is_followup": False,
         }
         questions.append(question_entry)
         if q["idx"] == BACKGROUND_ENTRY_IDX:
@@ -964,6 +1013,10 @@ def get_background_question_bank():
             entry_affirm_values = [entry_question["options"][0]]
 
     question_lookup = {q["key"]: q for q in questions}
+    for child_key in child_parent:
+        child_question = question_lookup.get(child_key)
+        if child_question:
+            child_question["is_followup"] = True
 
     return {
         "questions": questions,
@@ -1028,6 +1081,21 @@ def validate_yesno_screeners(blocks: list[dict], warning_message: str) -> bool:
 
 def get_background_required_errors() -> list[str]:
     """배경 공통 문항 필수 응답 누락 목록을 반환."""
+    if "_bg_visible_required" in st.session_state:
+        visible_entries = get_visible_background_required()
+        errors: list[str] = []
+        for entry in visible_entries:
+            if not isinstance(entry, dict):
+                continue
+            key = entry.get("key")
+            label = entry.get("label") or key
+            if not key:
+                continue
+            value = get_saved_value(key, None)
+            if is_answer_missing(value):
+                errors.append(label or "")
+        return errors
+
     bg_data = get_background_question_bank()
     questions = bg_data.get("questions", [])
     child_parent = bg_data.get("child_parent", {})
@@ -1211,15 +1279,19 @@ def show_step_2_belonging_and_informal():
             # (2) 빈도
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
-            freq_value = st.radio(
-                "",
-                freq_opts,
-                index=None,
-                key=block["freq_key"],
-                horizontal=False,
-                label_visibility="collapsed",
-            )
-            record_answer(block["freq_key"], freq_value)
+            if freq_opts:
+                freq_value = st.radio(
+                    "",
+                    freq_opts,
+                    index=None,
+                    key=block["freq_key"],
+                    horizontal=False,
+                    label_visibility="collapsed",
+                )
+                record_answer(block["freq_key"], freq_value)
+            else:
+                st.info("제공된 빈도 선택지가 없어 이 문항은 건너뜁니다.")
+                record_answer(block["freq_key"], "")
 
             # (3) 서술형
             render_question_text(block["open_question"])
@@ -1267,15 +1339,19 @@ def show_step_3_dropout_scanning():
             # (2) 빈도
             freq_opts = block["freq_options"]
             render_question_text(block["freq_question"])
-            freq_value = st.radio(
-                "",
-                freq_opts,
-                index=None,
-                key=block["freq_key"],
-                horizontal=False,
-                label_visibility="collapsed",
-            )
-            record_answer(block["freq_key"], freq_value)
+            if freq_opts:
+                freq_value = st.radio(
+                    "",
+                    freq_opts,
+                    index=None,
+                    key=block["freq_key"],
+                    horizontal=False,
+                    label_visibility="collapsed",
+                )
+                record_answer(block["freq_key"], freq_value)
+            else:
+                st.info("제공된 빈도 선택지가 없어 이 문항은 건너뜁니다.")
+                record_answer(block["freq_key"], "")
 
             # (3) 서술형
             render_question_text(block["open_question"])
@@ -1306,6 +1382,18 @@ def show_step_4_background_and_programs():
         not entry_key or (entry_answer and entry_answer in entry_affirm_values)
     )
     first_choice_key, first_choice_major_key = get_first_choice_major_meta(questions)
+    visible_required_entries: list[dict[str, str]] = []
+    visible_required_keys: set[str] = set()
+
+    def mark_required(key: str | None, label: str | None):
+        if not key or not label:
+            return
+        if key in visible_required_keys:
+            return
+        visible_required_keys.add(key)
+        visible_required_entries.append({"key": key, "label": label})
+
+    set_visible_background_required([])
 
     for q in questions:
         section = q["section"]
@@ -1373,6 +1461,9 @@ def show_step_4_background_and_programs():
             )
             record_answer(key, value)
 
+        if not q.get("optional"):
+            mark_required(key, question_label)
+
         if q.get("note"):
             st.caption(q["note"])
 
@@ -1386,6 +1477,7 @@ def show_step_4_background_and_programs():
                     key=first_choice_major_key,
                 )
                 record_answer(first_choice_major_key, major_value)
+                mark_required(first_choice_major_key, FIRST_CHOICE_FOLLOWUP_LABEL)
             else:
                 reset_answer(first_choice_major_key)
 
@@ -1401,6 +1493,8 @@ def show_step_4_background_and_programs():
                     else:
                         keys_to_clear.append(child_key)
                 clear_state(keys_to_clear)
+
+    set_visible_background_required(visible_required_entries)
 
 
 def build_record():
@@ -1487,6 +1581,7 @@ def render_navigation(step_labels):
         if step > 0:
             if st.button("◀ 이전 단계"):
                 st.session_state["step"] = step - 1
+                st.session_state["scroll_to_top"] = True
                 st.rerun()
 
     with col3:
@@ -1497,6 +1592,7 @@ def render_navigation(step_labels):
             if st.button("다음 단계 ▶", disabled=next_disabled):
                 if can_advance_from_step(step):
                     st.session_state["step"] = step + 1
+                    st.session_state["scroll_to_top"] = True
                     st.rerun()
             if next_disabled:
                 st.caption("연구 참여에 동의해야 다음 단계로 이동할 수 있습니다.")
@@ -1527,6 +1623,8 @@ def render_navigation(step_labels):
 def main():
     if "step" not in st.session_state:
         st.session_state["step"] = 0
+    if "scroll_to_top" not in st.session_state:
+        st.session_state["scroll_to_top"] = False
 
     step_labels = [
         "참여 동의 및 기본 정보",
@@ -1539,6 +1637,10 @@ def main():
     step = st.session_state["step"]
     step = max(0, min(step, len(step_labels) - 1))
     st.session_state["step"] = step
+
+    if st.session_state.get("scroll_to_top"):
+        scroll_to_top()
+        st.session_state["scroll_to_top"] = False
 
     if step == 0:
         st.title("충남대학교 창의융합대학 종단연구 설문")
