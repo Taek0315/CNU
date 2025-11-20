@@ -52,40 +52,28 @@ QUESTION_CSS = """
 <style>
 .question-text {
     font-size: 1.05rem;
-    line-height: 1.6;
+    line-height: 1.55;
+    margin-bottom: 0.25rem;
+}
+.scale-desc {
+    font-size: 0.95rem;
+    color: #4b5563;
+    margin: 0 0 0.35rem 0;
+}
+[data-testid="stRadio"] > div {
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+[data-testid="stRadio"] label {
+    border: 1px solid #cbd5f5;
+    border-radius: 999px;
+    padding: 0.35rem 0.85rem;
+    min-width: 2.5rem;
+    justify-content: center;
 }
 </style>
 """
 st.markdown(QUESTION_CSS, unsafe_allow_html=True)
-
-LIKERT_CSS = """
-<style>
-[data-testid="stRadio"] > div {
-    gap: 0.5rem !important;
-}
-[data-testid="stRadio"] label {
-    width: 100%;
-    border: 1px solid #dfe3eb;
-    border-radius: 0.75rem;
-    padding: 0.75rem 1rem;
-    display: flex;
-    gap: 0.75rem;
-    align-items: center;
-}
-[data-testid="stRadio"] label:hover {
-    border-color: #4c9aff;
-}
-[data-testid="stRadio"] label p {
-    white-space: pre-line;
-    text-align: center;
-    font-size: 1rem;
-    line-height: 1.4;
-    margin: 0;
-    flex: 1;
-}
-</style>
-"""
-st.markdown(LIKERT_CSS, unsafe_allow_html=True)
 
 LIKERT_VALUES = [1, 2, 3, 4, 5]
 LIKERT_LABELS = [
@@ -122,15 +110,6 @@ BASIC_FIELD_DEFAULTS = {
 }
 
 
-def format_likert_option(value: int) -> str:
-    """Likert 옵션을 '숫자\\n라벨' 형태로 렌더링."""
-    try:
-        label = LIKERT_LABELS[value - 1]
-    except Exception:
-        label = ""
-    return f"{value}\n{label}".strip()
-
-
 def render_question_text(text: str):
     """모바일 가독성을 높인 질문 텍스트 렌더러."""
     if not text:
@@ -158,19 +137,29 @@ def clean_option(opt: str) -> str:
     return re.sub(r"^[■□❑◻︎\s]+", "", opt).strip()
 
 
-def register_key(key: str):
-    """저장할 질문 key를 전역 리스트에 모으기."""
-    if "question_keys" not in st.session_state:
-        st.session_state["question_keys"] = []
-    if key not in st.session_state["question_keys"]:
-        st.session_state["question_keys"].append(key)
-
-
 def normalize_value(v):
     """CSV 저장 전에 리스트/튜플을 문자열로 변환."""
     if isinstance(v, (list, tuple)):
         return " / ".join(str(x) for x in v)
     return v
+
+
+def render_scale_description(
+    low: str | None = None, mid: str | None = None, high: str | None = None
+):
+    """Likert 척도 안내 문구를 출력."""
+    low = low or LIKERT_LABELS[0]
+    mid = mid or LIKERT_LABELS[2]
+    high = high or LIKERT_LABELS[4]
+    desc = f"응답 척도: 1점 = {low} — 3점 = {mid} — 5점 = {high}"
+    st.markdown(f"<p class='scale-desc'>{html.escape(desc)}</p>", unsafe_allow_html=True)
+
+
+def clear_state(keys: list[str]):
+    """조건 불충족 시 하위 문항 값을 초기화."""
+    for key in keys:
+        if key in st.session_state:
+            del st.session_state[key]
 
 
 def save_record_to_csv(record: dict, filename: str = OUTPUT_CSV):
@@ -246,6 +235,7 @@ def save_record_to_google_sheet(record: dict):
 # -------------------------------------------------------------------
 # 엑셀 로딩 / 파싱 함수
 # -------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
 def load_instructions(path: Path = SURVEY_FILE) -> str:
     """안내문 시트에서 제목+본문 텍스트 가져오기."""
     path = Path(path)
@@ -255,6 +245,7 @@ def load_instructions(path: Path = SURVEY_FILE) -> str:
     return f"### {title}\n\n{body}"
 
 
+@st.cache_data(show_spinner=False)
 def load_main_items(path: Path = SURVEY_FILE) -> pd.DataFrame:
     """
     [전공 및 진로확신, 학습역량 측정 도구] 시트에서
@@ -309,6 +300,7 @@ def inject_validity_items(items: list[dict]) -> list[dict]:
     return sequence
 
 
+@st.cache_data(show_spinner=False)
 def build_main_scale_sequence() -> list[dict]:
     """엑셀 문항 + 타당도 문항을 포함한 순차 리스트 생성."""
     df = load_main_items()
@@ -328,6 +320,7 @@ def build_main_scale_sequence() -> list[dict]:
     return inject_validity_items(questions)
 
 
+@st.cache_data(show_spinner=False)
 def load_belong_blocks(path: Path = SURVEY_FILE):
     """
     [대학 소속감 및 비공식관계망] 시트에서
@@ -376,6 +369,7 @@ def load_belong_blocks(path: Path = SURVEY_FILE):
     return blocks
 
 
+@st.cache_data(show_spinner=False)
 def load_dropout_blocks(path: Path = SURVEY_FILE):
     """
     [이탈 방지 질문지] 시트에서
@@ -419,6 +413,7 @@ def load_dropout_blocks(path: Path = SURVEY_FILE):
     return blocks
 
 
+@st.cache_data(show_spinner=False)
 def load_background_questions(path: Path = SURVEY_FILE):
     """
     [질적정보] 시트에서 학생 배경 및 교과/비교과 참여 문항 전부를 추출.
@@ -468,6 +463,108 @@ def load_background_questions(path: Path = SURVEY_FILE):
     return questions
 
 
+BACKGROUND_BRANCH_RULES = [
+    {
+        "parent_idx": 36,
+        "child_indices": [37, 38],
+        "affirmative_values": None,
+    },
+]
+
+
+@st.cache_data(show_spinner=False)
+def get_main_scale_items() -> list[dict]:
+    """캐시된 메인 척도 문항 리스트."""
+    return build_main_scale_sequence()
+
+
+@st.cache_data(show_spinner=False)
+def get_belong_blocks_with_keys() -> list[dict]:
+    """소속감/비공식 관계망 블록에 위젯 key 및 옵션을 부여."""
+    annotated = []
+    for block in load_belong_blocks():
+        key_prefix = make_key("belong", block["area"], block["dimension"], block["row_index"])
+        annotated.append(
+            {
+                **block,
+                "yes_key": f"{key_prefix}_yn",
+                "freq_key": f"{key_prefix}_freq",
+                "open_key": f"{key_prefix}_open",
+                "yes_value": clean_option(block["yes_label"]),
+                "no_value": clean_option(block["no_label"]),
+                "freq_options": [clean_option(opt) for opt in block["freq_options"]],
+            }
+        )
+    return annotated
+
+
+@st.cache_data(show_spinner=False)
+def get_dropout_blocks_with_keys() -> list[dict]:
+    """중도탈락 스캐닝 블록에 위젯 key 및 옵션을 부여."""
+    annotated = []
+    for block in load_dropout_blocks():
+        key_prefix = make_key("drop", block["axis"], block["row_index"])
+        annotated.append(
+            {
+                **block,
+                "yes_key": f"{key_prefix}_yn",
+                "freq_key": f"{key_prefix}_freq",
+                "open_key": f"{key_prefix}_open",
+                "yes_value": clean_option(block["yes_label"]),
+                "no_value": clean_option(block["no_label"]),
+                "freq_options": [clean_option(opt) for opt in block["freq_options"]],
+            }
+        )
+    return annotated
+
+
+@st.cache_data(show_spinner=False)
+def get_background_question_bank():
+    """배경 문항 + 분기 메타데이터."""
+    questions = []
+    for q in load_background_questions():
+        options = [clean_option(opt) for opt in q["options"]]
+        key = make_key("bg", q["section"], q["idx"])
+        questions.append({**q, "options": options, "key": key})
+
+    parent_children: dict[str, list[str]] = {}
+    child_parent: dict[str, str] = {}
+    parent_affirmative: dict[str, list[str]] = {}
+
+    for rule in BACKGROUND_BRANCH_RULES:
+        parent = next((q for q in questions if q["idx"] == rule["parent_idx"]), None)
+        if parent is None:
+            continue
+        parent_key = parent["key"]
+        children_keys = []
+        for child_idx in rule.get("child_indices", []):
+            child = next((q for q in questions if q["idx"] == child_idx), None)
+            if child is None:
+                continue
+            children_keys.append(child["key"])
+            child_parent[child["key"]] = parent_key
+        if children_keys:
+            parent_children[parent_key] = children_keys
+
+        if rule.get("affirmative_values"):
+            show_values = [clean_option(v) for v in rule["affirmative_values"]]
+        elif parent["options"]:
+            show_values = [parent["options"][0]]
+        else:
+            show_values = ["예"]
+        cleaned_values = [val for val in show_values if val]
+        if not cleaned_values:
+            cleaned_values = ["예"]
+        parent_affirmative[parent_key] = cleaned_values
+
+    return {
+        "questions": questions,
+        "parent_children": parent_children,
+        "child_parent": child_parent,
+        "parent_affirmative": parent_affirmative,
+    }
+
+
 # -------------------------------------------------------------------
 # 각 단계 화면 렌더링
 # -------------------------------------------------------------------
@@ -483,20 +580,15 @@ def show_step_0_consent_and_basic():
     st.text_input("이름", key=name_key)
     st.radio(
         "성별",
-        ["남", "여", "기타/응답 거절"],
+        ["남자", "여자"],
         index=None,
         key=gender_key,
-        horizontal=False,
+        horizontal=True,
     )
     st.text_input("학번", key=sid_key)
 
-    register_key(name_key)
-    register_key(gender_key)
-    register_key(sid_key)
-
     consent_key = "consent_research"
-    consent = st.checkbox("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.", key=consent_key)
-    register_key(consent_key)
+    st.checkbox("위 안내문을 읽었으며, 자발적으로 연구 참여에 동의합니다.", key=consent_key)
 
     st.info("※ 동의 여부와 상관없이 언제든지 설문 참여를 중단하실 수 있습니다.")
 
@@ -504,7 +596,7 @@ def show_step_0_consent_and_basic():
 def show_step_1_main_scale():
     st.markdown("### 1. 전공 및 진로 확신, 학습 역량 측정 문항")
 
-    items = build_main_scale_sequence()
+    items = get_main_scale_items()
 
     current_area = None
     for item in items:
@@ -515,15 +607,15 @@ def show_step_1_main_scale():
             current_area = area
 
         key = item["key"]
-        register_key(key)
         render_question_text(item["text"])
+        render_scale_description()
         st.radio(
             "",
             LIKERT_VALUES,
             index=None,
             key=key,
-            horizontal=False,
-            format_func=format_likert_option,
+            horizontal=True,
+            format_func=lambda v: str(v),
             label_visibility="collapsed",
         )
 
@@ -531,7 +623,7 @@ def show_step_1_main_scale():
 def show_step_2_belonging_and_informal():
     st.markdown("### 2. 대학 소속감 및 비공식 관계망 문항")
 
-    blocks = load_belong_blocks()
+    blocks = get_belong_blocks_with_keys()
 
     current_area = None
     for block in blocks:
@@ -543,47 +635,48 @@ def show_step_2_belonging_and_informal():
         dim = block["dimension"]
 
         # (1) 예/아니오 스크리닝
-        yn_key = make_key("belong", current_area, dim, block["row_index"], "yn")
-        register_key(yn_key)
+        yn_key = block["yes_key"]
         render_question_text(block["yesno_question"])
-        st.radio(
+        yn_answer = st.radio(
             "",
-            [clean_option(block["yes_label"]), clean_option(block["no_label"])],
+            [block["yes_value"], block["no_value"]],
             index=None,
             key=yn_key,
-            horizontal=False,
+            horizontal=True,
             label_visibility="collapsed",
         )
 
-        # (2) 빈도
-        freq_key = make_key("belong", current_area, dim, block["row_index"], "freq")
-        register_key(freq_key)
-        freq_opts = [clean_option(o) for o in block["freq_options"]]
-        render_question_text(block["freq_question"])
-        st.radio(
-            "",
-            freq_opts,
-            index=None,
-            key=freq_key,
-            horizontal=False,
-            label_visibility="collapsed",
-        )
+        show_followups = yn_answer == block["yes_value"]
+        followup_keys = [block["freq_key"], block["open_key"]]
 
-        # (3) 서술형
-        open_key = make_key("belong", current_area, dim, block["row_index"], "open")
-        register_key(open_key)
-        render_question_text(block["open_question"])
-        st.text_area(
-            "",
-            key=open_key,
-            label_visibility="collapsed",
-        )
+        if show_followups:
+            # (2) 빈도
+            freq_opts = block["freq_options"]
+            render_question_text(block["freq_question"])
+            st.radio(
+                "",
+                freq_opts,
+                index=None,
+                key=block["freq_key"],
+                horizontal=False,
+                label_visibility="collapsed",
+            )
+
+            # (3) 서술형
+            render_question_text(block["open_question"])
+            st.text_area(
+                "",
+                key=block["open_key"],
+                label_visibility="collapsed",
+            )
+        else:
+            clear_state(followup_keys)
 
 
 def show_step_3_dropout_scanning():
     st.markdown("### 3. 중도탈락 위험 스캐닝 문항")
 
-    blocks = load_dropout_blocks()
+    blocks = get_dropout_blocks_with_keys()
     current_axis = None
 
     for block in blocks:
@@ -593,47 +686,52 @@ def show_step_3_dropout_scanning():
             current_axis = block["axis"]
 
         # (1) 예/아니오
-        yn_key = make_key("drop", current_axis, block["row_index"], "yn")
-        register_key(yn_key)
+        yn_key = block["yes_key"]
         render_question_text(block["yesno_question"])
-        st.radio(
+        yn_answer = st.radio(
             "",
-            [clean_option(block["yes_label"]), clean_option(block["no_label"])],
+            [block["yes_value"], block["no_value"]],
             index=None,
             key=yn_key,
-            horizontal=False,
+            horizontal=True,
             label_visibility="collapsed",
         )
 
-        # (2) 빈도
-        freq_key = make_key("drop", current_axis, block["row_index"], "freq")
-        register_key(freq_key)
-        freq_opts = [clean_option(o) for o in block["freq_options"]]
-        render_question_text(block["freq_question"])
-        st.radio(
-            "",
-            freq_opts,
-            index=None,
-            key=freq_key,
-            horizontal=False,
-            label_visibility="collapsed",
-        )
+        show_followups = yn_answer == block["yes_value"]
+        followup_keys = [block["freq_key"], block["open_key"]]
 
-        # (3) 서술형
-        open_key = make_key("drop", current_axis, block["row_index"], "open")
-        register_key(open_key)
-        render_question_text(block["open_question"])
-        st.text_area(
-            "",
-            key=open_key,
-            label_visibility="collapsed",
-        )
+        if show_followups:
+            # (2) 빈도
+            freq_opts = block["freq_options"]
+            render_question_text(block["freq_question"])
+            st.radio(
+                "",
+                freq_opts,
+                index=None,
+                key=block["freq_key"],
+                horizontal=False,
+                label_visibility="collapsed",
+            )
+
+            # (3) 서술형
+            render_question_text(block["open_question"])
+            st.text_area(
+                "",
+                key=block["open_key"],
+                label_visibility="collapsed",
+            )
+        else:
+            clear_state(followup_keys)
 
 
 def show_step_4_background_and_programs():
     st.markdown("### 4. 학생 배경 및 교과·비교과 프로그램 참여 문항")
 
-    questions = load_background_questions()
+    bg_data = get_background_question_bank()
+    questions = bg_data["questions"]
+    parent_children = bg_data["parent_children"]
+    child_parent = bg_data["child_parent"]
+    parent_affirm = bg_data["parent_affirmative"]
     current_section = None
 
     for q in questions:
@@ -644,18 +742,23 @@ def show_step_4_background_and_programs():
             current_section = section
 
         qtext = q["question"]
-        options = [clean_option(o) for o in q["options"]]
+        options = q["options"]
         qtype = q["type"]
         optional = q["optional"]
 
-        key = make_key("bg", current_section, q["idx"])
-        register_key(key)
+        key = q["key"]
+        parent_key = child_parent.get(key)
+        if parent_key:
+            allowed = parent_affirm.get(parent_key, [])
+            parent_answer = st.session_state.get(parent_key, "")
+            if not parent_answer or parent_answer not in allowed:
+                clear_state([key])
+                continue
 
         question_label = qtext + (" (선택)" if optional else "")
         render_question_text(question_label)
 
         if qtype == "single" and options:
-            # 단일 선택
             st.radio(
                 "",
                 options,
@@ -665,7 +768,6 @@ def show_step_4_background_and_programs():
                 label_visibility="collapsed",
             )
         elif qtype == "multi" and options:
-            # 복수 선택
             st.multiselect(
                 "",
                 options,
@@ -673,28 +775,84 @@ def show_step_4_background_and_programs():
                 label_visibility="collapsed",
             )
         else:
-            # 자유 응답
-            # 길이가 좀 있는 서술형일 가능성이 높으니 text_area 사용
             st.text_area(
                 "",
                 key=key,
                 label_visibility="collapsed",
             )
 
+        if key in parent_children:
+            allowed = parent_affirm.get(key, [])
+            answer = st.session_state.get(key, "")
+            if not answer or answer not in allowed:
+                clear_state(parent_children[key])
+
 
 def build_record():
-    """session_state에 모인 응답을 한 행짜리 dict로 정리."""
-    record = {}
-    record["submitted_at"] = datetime.now().isoformat(timespec="seconds")
+    """모든 단계 응답을 하나의 flat dict로 정리."""
+    record: dict[str, object] = {}
+    record["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     for key, default in BASIC_FIELD_DEFAULTS.items():
-        record[key] = normalize_value(st.session_state.get(key, default))
+        value = st.session_state.get(key, default)
+        if key == "consent_research":
+            record[key] = bool(value)
+        else:
+            record[key] = normalize_value(value or "")
 
-    keys = st.session_state.get("question_keys", [])
-    for k in keys:
-        if k in record:
-            continue
-        record[k] = normalize_value(st.session_state.get(k))
+    # 1. 메인 Likert 척도 (타당도 문항 포함)
+    for item in get_main_scale_items():
+        record[item["key"]] = normalize_value(st.session_state.get(item["key"], ""))
+
+    # 2. 소속감/비공식 관계망
+    for block in get_belong_blocks_with_keys():
+        yn_value = st.session_state.get(block["yes_key"], "")
+        record[block["yes_key"]] = normalize_value(yn_value)
+        followup_allowed = yn_value == block["yes_value"]
+        if followup_allowed:
+            record[block["freq_key"]] = normalize_value(
+                st.session_state.get(block["freq_key"], "")
+            )
+            record[block["open_key"]] = normalize_value(
+                st.session_state.get(block["open_key"], "")
+            )
+        else:
+            record[block["freq_key"]] = ""
+            record[block["open_key"]] = ""
+
+    # 3. 중도탈락 스캐닝
+    for block in get_dropout_blocks_with_keys():
+        yn_value = st.session_state.get(block["yes_key"], "")
+        record[block["yes_key"]] = normalize_value(yn_value)
+        followup_allowed = yn_value == block["yes_value"]
+        if followup_allowed:
+            record[block["freq_key"]] = normalize_value(
+                st.session_state.get(block["freq_key"], "")
+            )
+            record[block["open_key"]] = normalize_value(
+                st.session_state.get(block["open_key"], "")
+            )
+        else:
+            record[block["freq_key"]] = ""
+            record[block["open_key"]] = ""
+
+    # 4. 배경/교과·비교과
+    bg_data = get_background_question_bank()
+    parent_affirm = bg_data["parent_affirmative"]
+    child_parent = bg_data["child_parent"]
+
+    for q in bg_data["questions"]:
+        key = q["key"]
+        parent_key = child_parent.get(key)
+        if parent_key:
+            allowed = parent_affirm.get(parent_key, [])
+            parent_answer = st.session_state.get(parent_key, "")
+            if not parent_answer or parent_answer not in allowed:
+                record[key] = ""
+                continue
+
+        record[key] = normalize_value(st.session_state.get(key, ""))
+
     return record
 
 
@@ -736,8 +894,6 @@ def render_navigation(step_labels):
 def main():
     if "step" not in st.session_state:
         st.session_state["step"] = 0
-    if "question_keys" not in st.session_state:
-        st.session_state["question_keys"] = []
 
     step_labels = [
         "참여 동의 및 기본 정보",
