@@ -600,7 +600,22 @@ def load_background_questions(path: Path = SURVEY_FILE):
         if not isinstance(qtext, str) or qtext.strip() == "":
             continue
 
-        options = [row[c] for c in option_cols if isinstance(row[c], str)]
+        raw_options = []
+        for c in option_cols:
+            value = row.get(c)
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    raw_options.append(stripped)
+
+        note = None
+        options = []
+        for opt in raw_options:
+            if "선택사항" in opt or "민감정보" in opt:
+                note = f"{note}\n{opt}" if note else opt
+                continue
+            options.append(opt)
+
         normalized_text = re.sub(r"\s+", "", qtext)
         multi = "복수선택" in normalized_text
         optional = "선택" in qtext
@@ -608,6 +623,10 @@ def load_background_questions(path: Path = SURVEY_FILE):
         qtype = "text"
         if len(options) > 0:
             qtype = "multi" if multi else "single"
+
+        if isinstance(qtext, str) and FIRST_CHOICE_TOKEN in qtext:
+            options = ["있다", "없다"]
+            qtype = "single"
 
         questions.append(
             {
@@ -617,6 +636,7 @@ def load_background_questions(path: Path = SURVEY_FILE):
                 "options": options,
                 "type": qtype,
                 "optional": optional,
+                "note": note,
             }
         )
 
@@ -690,9 +710,16 @@ def get_background_question_bank():
     entry_question = None
     for q in load_background_questions():
         options = [clean_option(opt) for opt in q["options"]]
+        note = clean_option(q["note"]) if q.get("note") else None
         key = make_key("bg", q["section"], q["idx"])
         option_keys = [f"{key}__opt_{idx}" for idx in range(len(options))]
-        question_entry = {**q, "options": options, "key": key, "option_keys": option_keys}
+        question_entry = {
+            **q,
+            "options": options,
+            "note": note,
+            "key": key,
+            "option_keys": option_keys,
+        }
         questions.append(question_entry)
         if q["idx"] == BACKGROUND_ENTRY_IDX:
             entry_question = question_entry
@@ -763,7 +790,7 @@ def get_first_choice_major_meta(questions: list[dict] | None = None) -> tuple[st
         question_text = question.get("question")
         if isinstance(question_text, str) and FIRST_CHOICE_TOKEN in question_text:
             base_key = question.get("key")
-            major_key = make_key(base_key, "1지망", "학과", "텍스트")
+            major_key = make_key("bg", question.get("section"), f"{question.get('idx')}_major")
             return base_key, major_key
     return None, None
 
@@ -1019,14 +1046,16 @@ def show_step_4_background_and_programs():
         qtext = q["question"]
         options = q["options"]
         qtype = q["type"]
-        optional = q["optional"]
 
         key = q["key"]
         register_key(key)
+        is_first_choice = first_choice_key and key == first_choice_key
+        if is_first_choice and first_choice_major_key:
+            register_key(first_choice_major_key)
 
         if section in PROGRAM_ONLY_SECTIONS and not show_program_sections:
             clear_question_state(q)
-            if first_choice_major_key and key == first_choice_key:
+            if is_first_choice and first_choice_major_key:
                 reset_answer(first_choice_major_key)
             continue
 
@@ -1036,11 +1065,11 @@ def show_step_4_background_and_programs():
             parent_answer = get_saved_value(parent_key, "")
             if not parent_answer or parent_answer not in allowed:
                 clear_question_state(q)
-                if first_choice_major_key and key == first_choice_key:
+                if is_first_choice and first_choice_major_key:
                     reset_answer(first_choice_major_key)
                 continue
 
-        question_label = qtext + (" (선택)" if optional else "")
+        question_label = qtext
         render_question_text(question_label)
 
         if qtype == "single" and options:
@@ -1073,17 +1102,17 @@ def show_step_4_background_and_programs():
             )
             record_answer(key, value)
 
-        if key == first_choice_key and first_choice_major_key:
-            register_key(first_choice_major_key)
+        if q.get("note"):
+            st.caption(q["note"])
+
+        if is_first_choice and first_choice_major_key:
             choice_answer = get_saved_value(key, "")
             if choice_answer and "있다" in str(choice_answer):
-                render_question_text(FIRST_CHOICE_FOLLOWUP_LABEL)
                 default_major = get_saved_value(first_choice_major_key, "")
                 major_value = st.text_input(
-                    "",
+                    FIRST_CHOICE_FOLLOWUP_LABEL,
                     value=default_major,
                     key=first_choice_major_key,
-                    label_visibility="collapsed",
                 )
                 record_answer(first_choice_major_key, major_value)
             else:
