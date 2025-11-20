@@ -30,9 +30,10 @@ CUSTOM_CSS = """
 <style>
 section.main > div,
 .main > div {
-    max-width: 900px;
+    max-width: 820px;
     margin: 0 auto;
-    padding: 0 1.5rem 2rem;
+    padding: 0 1.5rem 2.5rem;
+    width: 100%;
 }
 @media (max-width: 640px) {
     section.main > div,
@@ -49,6 +50,16 @@ section.main > div,
     border-top: 1px solid #e2e8f0;
     margin: 1.5rem 0 1.25rem;
 }
+.survey-separator-thin {
+    border: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.15);
+    margin: 0.5rem 0 1rem;
+}
+.survey-separator-thick {
+    border: 0;
+    border-top: 2px solid rgba(255, 255, 255, 0.35);
+    margin: 1rem 0 1.5rem;
+}
 [data-testid="stCheckbox"] > div {
     align-items: center;
 }
@@ -58,7 +69,7 @@ section.main > div,
     padding: 0.35rem 0.75rem;
     width: 100%;
     display: flex;
-    gap: 0.4rem;
+    gap: 0.35rem;
 }
 [data-testid="stCheckbox"] > label span {
     flex: 1;
@@ -70,28 +81,42 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 QUESTION_CSS = """
 <style>
 .question-text {
-    font-size: 1.05rem;
-    line-height: 1.55;
-    margin-bottom: 0.25rem;
+    font-size: 1.08rem;
+    line-height: 1.65;
+    margin-bottom: 0.45rem;
 }
 .scale-desc {
     font-size: 0.95rem;
     color: #4b5563;
     margin: 0 0 0.35rem 0;
 }
+[data-testid="stRadio"] {
+    margin-bottom: 0.35rem;
+}
 [data-testid="stRadio"] > div {
-    gap: 0.45rem;
+    gap: 0.35rem;
     flex-wrap: wrap;
+    margin-top: 0.2rem;
 }
 [data-testid="stRadio"] label {
     border: 1px solid #dbeafe;
     border-radius: 999px;
-    padding: 0.35rem 0.85rem;
-    min-width: 2.5rem;
+    padding: 0.32rem 0.75rem;
+    min-width: 2.75rem;
     justify-content: center;
+    line-height: 1.2;
 }
 [data-testid="stRadio"] label:hover {
     border-color: #93c5fd;
+}
+@media (max-width: 420px) {
+    [data-testid="stRadio"] > div {
+        gap: 0.25rem;
+    }
+    [data-testid="stRadio"] label {
+        flex: 1 1 calc(50% - 0.25rem);
+        min-width: 2.5rem;
+    }
 }
 </style>
 """
@@ -129,6 +154,33 @@ BASIC_FIELD_DEFAULTS = {
     "gender": "",
     "student_id": "",
     "consent_research": False,
+}
+
+SECTION_METADATA = {
+    "main_scale": {
+        "area": "전공 및 진로 확신, 학습 역량",
+        "test_name": "학업·진로 자신감 평가",
+        "description": "전공과 진로에 대한 확신과 학습능력에 대한 자기 인식을 파악합니다.",
+        "instruction": "다음 문항은 전공과 진로에 대한 생각과 자신의 학습 역량에 관한 질문입니다. 현재 상황과 가장 가까운 응답을 선택해 주세요.",
+    },
+    "belonging": {
+        "area": "대학 소속감 및 비공식 관계망",
+        "test_name": "캠퍼스 소속감·관계망 조사",
+        "description": "학교에 대한 소속감과 친구, 선후배, 교수 등과의 관계 경험을 알아봅니다.",
+        "instruction": "학교 생활에서 느끼는 소속감과 교류 경험을 바탕으로 가장 알맞은 답변을 선택해 주세요.",
+    },
+    "dropout": {
+        "area": "중도탈락 위험 스캐닝",
+        "test_name": "학업 지속 의지·위험요인 체크",
+        "description": "학업 지속 여부에 영향을 미칠 수 있는 어려움과 고민을 탐색합니다.",
+        "instruction": "학업을 이어가는 데 있어 현재 느끼는 고민과 어려움을 솔직하게 답해주세요. 모든 응답은 익명으로 처리됩니다.",
+    },
+    "background": {
+        "area": "학생 배경 및 교과·비교과 참여",
+        "test_name": "학습 배경·참여 경험 조사",
+        "description": "기본 배경과 교과, 비교과 프로그램 참여 경험을 조사합니다.",
+        "instruction": "학업 배경과 다양한 프로그램 참여 경험에 대해 해당 항목을 선택하거나 직접 기입해 주세요.",
+    },
 }
 
 
@@ -192,6 +244,16 @@ def render_question_text(text: str):
         return
     safe = html.escape(str(text)).replace("\n", "<br/>")
     st.markdown(f"<p class='question-text'>{safe}</p>", unsafe_allow_html=True)
+
+
+def render_section_intro(meta: dict[str, str] | None):
+    """새로운 영역 헤더 레이아웃을 출력."""
+    if not meta:
+        return
+    st.markdown(f"### {meta.get('area', '')}")
+    st.markdown(f"**{meta.get('test_name', '')}**")
+    st.markdown(meta.get("description", ""))
+    st.markdown(meta.get("instruction", ""))
 
 
 def render_pills(
@@ -284,17 +346,6 @@ def normalize_value(v):
     if isinstance(v, (list, tuple)):
         return " / ".join(str(x) for x in v)
     return v
-
-
-def render_scale_description(
-    low: str | None = None, mid: str | None = None, high: str | None = None
-):
-    """Likert 척도 안내 문구를 출력."""
-    low = low or LIKERT_LABELS[0]
-    mid = mid or LIKERT_LABELS[2]
-    high = high or LIKERT_LABELS[4]
-    desc = f"응답 척도: 1점 = {low} — 3점 = {mid} — 5점 = {high}"
-    st.markdown(f"<p class='scale-desc'>{html.escape(desc)}</p>", unsafe_allow_html=True)
 
 
 def clear_state(keys: list[str]):
@@ -888,30 +939,52 @@ def show_step_0_consent_and_basic():
 
 
 def show_step_1_main_scale():
-    st.markdown("### 1. 전공 및 진로 확신, 학습 역량 측정 문항")
+    render_section_intro(SECTION_METADATA.get("main_scale"))
+    st.markdown(
+        "응답 척도: **1점(매우 그렇지 않다.)** — **3점(보통이다)** — **5점(매우 그렇다.)**"
+    )
 
     items = get_main_scale_items()
 
-    current_area = None
-    for item in items:
-        area = item.get("area")
-        if area != current_area:
-            if current_area is not None:
-                st.divider()
-            current_area = area
+    def parse_item_number(value) -> int | None:
+        try:
+            text = str(value).strip()
+            if not text:
+                return None
+            return int(float(text))
+        except (TypeError, ValueError):
+            return None
 
+    numeric_ids = [
+        n for n in (parse_item_number(item.get("item_no")) for item in items) if n is not None
+    ]
+    max_item_no = max(numeric_ids) if numeric_ids else None
+    total_items = len(items)
+
+    for idx, item in enumerate(items):
         key = item["key"]
         render_question_text(item["text"])
-        render_scale_description()
         render_pills(
             LIKERT_VALUES,
             key=key,
             format_func=lambda v: str(v),
         )
 
+        if idx == total_items - 1:
+            continue
+
+        item_no = parse_item_number(item.get("item_no"))
+        if max_item_no and item_no is not None and item_no < max_item_no:
+            if item_no % 10 == 0:
+                st.markdown('<hr class="survey-separator-thick">', unsafe_allow_html=True)
+            else:
+                st.markdown('<hr class="survey-separator-thin">', unsafe_allow_html=True)
+        else:
+            st.markdown('<hr class="survey-separator-thin">', unsafe_allow_html=True)
+
 
 def show_step_2_belonging_and_informal():
-    st.markdown("### 2. 대학 소속감 및 비공식 관계망 문항")
+    render_section_intro(SECTION_METADATA.get("belonging"))
 
     blocks = get_belong_blocks_with_keys()
 
@@ -968,7 +1041,7 @@ def show_step_2_belonging_and_informal():
 
 
 def show_step_3_dropout_scanning():
-    st.markdown("### 3. 중도탈락 위험 스캐닝 문항")
+    render_section_intro(SECTION_METADATA.get("dropout"))
 
     blocks = get_dropout_blocks_with_keys()
     current_axis = None
@@ -1019,7 +1092,7 @@ def show_step_3_dropout_scanning():
 
 
 def show_step_4_background_and_programs():
-    st.markdown("### 4. 학생 배경 및 교과·비교과 프로그램 참여 문항")
+    render_section_intro(SECTION_METADATA.get("background"))
 
     bg_data = get_background_question_bank()
     questions = bg_data["questions"]
