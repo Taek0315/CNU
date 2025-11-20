@@ -28,6 +28,14 @@ st.set_page_config(
 
 CUSTOM_CSS = """
 <style>
+:root {
+    color-scheme: light;
+}
+body,
+.stApp {
+    background-color: #f7f7f7;
+    color: #222222;
+}
 section.main > div,
 .main > div {
     max-width: 820px;
@@ -41,38 +49,74 @@ section.main > div,
         padding: 0 1rem 2rem;
     }
 }
+.main,
+.block-container {
+    background-color: #ffffff;
+    color: #222222;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    color: #111827;
+}
 [data-testid="stSidebar"] {
     width: 0 !important;
     min-width: 0 !important;
 }
 .set-divider {
     border: none;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid #d0d7de;
     margin: 1.5rem 0 1.25rem;
 }
 .survey-separator-thin {
     border: 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.15);
-    margin: 0.5rem 0 1rem;
+    border-top: 1px solid rgba(15, 23, 42, 0.12);
+    margin: 0.75rem 0 1.15rem;
 }
 .survey-separator-thick {
     border: 0;
-    border-top: 2px solid rgba(255, 255, 255, 0.35);
+    border-top: 2px solid rgba(15, 23, 42, 0.18);
     margin: 1rem 0 1.5rem;
+}
+.scale-description {
+    text-align: center;
+    font-weight: 500;
+    margin-top: 0.75rem;
+    margin-bottom: 0.75rem;
+    color: #111827;
+}
+.scale-separator {
+    border: 0;
+    border-top: 1px solid rgba(15, 23, 42, 0.16);
+    margin-bottom: 1.25rem;
 }
 [data-testid="stCheckbox"] > div {
     align-items: center;
 }
 [data-testid="stCheckbox"] > label {
-    border: 1px solid #dbeafe;
+    border: 1px solid #d0d7de;
     border-radius: 999px;
     padding: 0.35rem 0.75rem;
     width: 100%;
     display: flex;
     gap: 0.35rem;
+    background-color: #ffffff;
+    color: #1f2328;
+    transition: all 0.15s ease;
 }
 [data-testid="stCheckbox"] > label span {
     flex: 1;
+}
+[data-testid="stCheckbox"] > label:has(input:checked) {
+    background-color: #1f6feb;
+    border-color: #1f6feb;
+    color: #ffffff;
+}
+[data-testid="stCheckbox"] > label:hover {
+    border-color: #1f6feb;
 }
 </style>
 """
@@ -84,36 +128,58 @@ QUESTION_CSS = """
     font-size: 1.08rem;
     line-height: 1.65;
     margin-bottom: 0.45rem;
-}
-.scale-desc {
-    font-size: 0.95rem;
-    color: #4b5563;
-    margin: 0 0 0.35rem 0;
+    color: #111827;
 }
 [data-testid="stRadio"] {
     margin-bottom: 0.35rem;
 }
 [data-testid="stRadio"] > div {
-    gap: 0.35rem;
+    gap: 0.4rem;
     flex-wrap: wrap;
-    margin-top: 0.2rem;
+    margin-top: 0.35rem;
 }
-[data-testid="stRadio"] label {
-    border: 1px solid #dbeafe;
+[data-testid="stRadio"] label[data-baseweb="radio"] {
+    border: 1px solid #d0d7de;
     border-radius: 999px;
-    padding: 0.32rem 0.75rem;
+    padding: 0.32rem 0.85rem;
     min-width: 2.75rem;
     justify-content: center;
     line-height: 1.2;
+    background-color: #ffffff;
+    color: #1f2328;
+    transition: all 0.15s ease;
 }
-[data-testid="stRadio"] label:hover {
-    border-color: #93c5fd;
+[data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+    border-color: #1f6feb;
+}
+[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
+    background-color: #1f6feb;
+    color: #ffffff;
+    border-color: #1f6feb;
+}
+[data-testid="stPills"] button {
+    border-radius: 999px;
+    border: 1px solid #d0d7de;
+    background-color: #ffffff;
+    color: #1f2328;
+    padding: 0.35rem 0.9rem;
+    margin: 0.25rem 0.35rem 0.25rem 0;
+    transition: all 0.15s ease;
+    font-size: 0.95rem;
+}
+[data-testid="stPills"] button:hover {
+    border-color: #1f6feb;
+}
+[data-testid="stPills"] button[aria-pressed="true"] {
+    background-color: #1f6feb;
+    color: #ffffff;
+    border-color: #1f6feb;
 }
 @media (max-width: 420px) {
     [data-testid="stRadio"] > div {
         gap: 0.25rem;
     }
-    [data-testid="stRadio"] label {
+    [data-testid="stRadio"] label[data-baseweb="radio"] {
         flex: 1 1 calc(50% - 0.25rem);
         min-width: 2.5rem;
     }
@@ -877,6 +943,45 @@ def validate_yesno_screeners(blocks: list[dict], warning_message: str) -> bool:
     return True
 
 
+def get_background_required_errors() -> list[str]:
+    """배경 공통 문항 필수 응답 누락 목록을 반환."""
+    bg_data = get_background_question_bank()
+    questions = bg_data.get("questions", [])
+    child_parent = bg_data.get("child_parent", {})
+    parent_affirm = bg_data.get("parent_affirmative", {})
+    entry_key = bg_data.get("entry_question_key")
+    entry_affirm_values = bg_data.get("entry_affirm_values", [])
+    entry_answer = get_saved_value(entry_key, "") if entry_key else ""
+    show_program_sections = (
+        not entry_key or (entry_answer and entry_answer in entry_affirm_values)
+    )
+
+    errors: list[str] = []
+    for question in questions:
+        if question.get("optional"):
+            continue
+        if (
+            question.get("section") in PROGRAM_ONLY_SECTIONS
+            and not show_program_sections
+        ):
+            continue
+
+        key = question.get("key")
+        if not key:
+            continue
+        parent_key = child_parent.get(key)
+        if parent_key:
+            allowed = parent_affirm.get(parent_key, [])
+            parent_answer = get_saved_value(parent_key, "")
+            if not parent_answer or parent_answer not in allowed:
+                continue
+
+        value = get_saved_value(key, None)
+        if is_answer_missing(value):
+            errors.append(question.get("question", ""))
+    return errors
+
+
 def can_advance_from_step(step: int) -> bool:
     """다음 단계로 이동 가능한지 검증."""
     if step == 1:
@@ -941,8 +1046,11 @@ def show_step_0_consent_and_basic():
 def show_step_1_main_scale():
     render_section_intro(SECTION_METADATA.get("main_scale"))
     st.markdown(
-        "응답 척도: **1점(매우 그렇지 않다.)** — **3점(보통이다)** — **5점(매우 그렇다.)**"
+        '<div class="scale-description">1점(매우 그렇지 않다.) --- 3점(보통이다) --- 5점(매우 그렇다.)</div>',
+        unsafe_allow_html=True,
     )
+    st.markdown('<hr class="scale-separator">', unsafe_allow_html=True)
+    st.markdown('<div style="height: 0.75rem;"></div>', unsafe_allow_html=True)
 
     items = get_main_scale_items()
 
@@ -963,7 +1071,14 @@ def show_step_1_main_scale():
 
     for idx, item in enumerate(items):
         key = item["key"]
-        render_question_text(item["text"])
+        raw_item_no = item.get("item_no")
+        num_str = ""
+        if raw_item_no not in [None, ""]:
+            num_str = str(raw_item_no).strip()
+        question_label = item["text"]
+        if num_str:
+            question_label = f"{num_str}. {question_label}"
+        render_question_text(question_label)
         render_pills(
             LIKERT_VALUES,
             key=key,
@@ -1304,6 +1419,13 @@ def render_navigation(step_labels):
                 st.caption("연구 참여에 동의해야 다음 단계로 이동할 수 있습니다.")
         else:
             if st.button("응답 제출"):
+                if step == 4:
+                    missing_required = get_background_required_errors()
+                    if missing_required:
+                        st.warning(
+                            "배경 정보 문항 중 필수 문항에 응답하지 않은 항목이 있습니다. 빠진 문항을 확인해 주세요."
+                        )
+                        st.stop()
                 record = build_record()
                 save_record_to_csv(record)
                 try:
